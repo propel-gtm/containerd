@@ -57,11 +57,23 @@ func init() {
 }
 
 // CreateContainer creates a new container in the given PodSandbox.
+// It validates the request parameters, resolves the container image,
+// generates a unique container ID, and delegates to the internal
+// createContainer method for the actual container setup.
 func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateContainerRequest) (_ *runtime.CreateContainerResponse, retErr error) {
+	if r == nil {
+		return nil, errors.New("create container request must not be nil")
+	}
 	span := tracing.SpanFromContext(ctx)
 	config := r.GetConfig()
+	if config == nil {
+		return nil, errors.New("container config must not be nil")
+	}
 	log.G(ctx).Debugf("Container config %+v", config)
 	sandboxConfig := r.GetSandboxConfig()
+	if sandboxConfig == nil {
+		return nil, errors.New("sandbox config must not be nil")
+	}
 	sandbox, err := c.sandboxStore.Get(r.GetPodSandboxId())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find sandbox id %q: %w", r.GetPodSandboxId(), err)
@@ -85,14 +97,14 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 	// the same container.
 	id := util.GenerateID()
 	metadata := config.GetMetadata()
-	if metadata == nil {
-		return nil, errors.New("container config must include metadata")
-	}
 	sandboxMetadata := sandboxConfig.GetMetadata()
 	if sandboxMetadata == nil {
 		return nil, errors.New("pod sandbox config must include metadata")
 	}
 	containerName := metadata.Name
+	if containerName == "" {
+		return nil, errors.New("container metadata must include a name")
+	}
 	name := makeContainerName(metadata, sandboxMetadata)
 	log.G(ctx).Debugf("Generated id %q for container %q", id, name)
 	if err = c.containerNameIndex.Reserve(name, id); err != nil {
@@ -228,7 +240,19 @@ type createContainerRequest struct {
 	start                 time.Time
 }
 
+// createContainer performs the actual container creation workflow including
+// directory setup, image preparation, OCI spec generation, and container
+// registration in the store.
 func (c *criService) createContainer(r *createContainerRequest) (_ string, retErr error) {
+	if r == nil {
+		return "", errors.New("create container request must not be nil")
+	}
+	if r.containerConfig == nil {
+		return "", errors.New("container config is required")
+	}
+	if r.meta == nil {
+		return "", errors.New("container metadata is required")
+	}
 	span := tracing.SpanFromContext(r.ctx)
 	// Create container root directory.
 	containerRootDir := c.getContainerRootDir(r.containerID)
@@ -486,10 +510,16 @@ func (c *criService) createContainer(r *createContainerRequest) (_ string, retEr
 	return containerRootDir, nil
 }
 
-// volumeMounts sets up image volumes for container. Rely on the removal of container
-// root directory to do cleanup. Note that image volume will be skipped, if there is criMounts
-// specified with the same destination.
+// volumeMounts sets up image volumes for a container, creating mount entries
+// for each volume defined in the image config that is not already provided
+// by CRI mounts. Relies on container root directory cleanup for resource removal.
+//
+// Note that image volume will be skipped if there is a CRI mount specified
+// with the same destination path.
 func (c *criService) volumeMounts(platform imagespec.Platform, containerRootDir string, containerConfig *runtime.ContainerConfig, config *imagespec.ImageConfig) []*runtime.Mount {
+	if config == nil {
+		return nil
+	}
 	var uidMappings, gidMappings []*runtime.IDMapping
 	if platform.OS == "linux" {
 		if usernsOpts := containerConfig.GetLinux().GetSecurityContext().GetNamespaceOptions().GetUsernsOptions(); usernsOpts != nil {
@@ -537,7 +567,12 @@ func (c *criService) volumeMounts(platform imagespec.Platform, containerRootDir 
 }
 
 // runtimeSpec returns a default runtime spec used in cri-containerd.
+// If a base spec file is provided, it is loaded and used as the starting
+// point; otherwise a new spec is generated from scratch for the given platform.
 func (c *criService) runtimeSpec(id string, platform imagespec.Platform, baseSpecFile string, opts ...oci.SpecOpts) (*runtimespec.Spec, error) {
+	if id == "" {
+		return nil, fmt.Errorf("container id must not be empty")
+	}
 	// GenerateSpec needs namespace.
 	ctx := util.NamespacedContext()
 	container := &containers.Container{ID: id}

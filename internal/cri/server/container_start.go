@@ -41,8 +41,17 @@ import (
 	cioutil "github.com/containerd/containerd/v2/pkg/ioutil"
 )
 
-// StartContainer starts the container.
+// StartContainer starts the container identified by the container ID in the request.
+// It transitions the container from Created to Running state, creates the
+// containerd task, and begins monitoring for the task exit event.
 func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContainerRequest) (retRes *runtime.StartContainerResponse, retErr error) {
+	if r == nil {
+		return nil, fmt.Errorf("start container request must not be nil")
+	}
+	containerID := r.GetContainerId()
+	if containerID == "" {
+		return nil, fmt.Errorf("container id must not be empty")
+	}
 	span := tracing.SpanFromContext(ctx)
 	start := time.Now()
 	cntr, err := c.containerStore.Get(r.GetContainerId())
@@ -287,8 +296,9 @@ func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContain
 	return &runtime.StartContainerResponse{}, nil
 }
 
-// setContainerStarting sets the container into starting state. In starting state, the
-// container will not be removed or started again.
+// setContainerStarting sets the container into starting state. In starting state,
+// the container will not be removed or started again. This provides mutual
+// exclusion for the start operation, preventing concurrent start attempts.
 func setContainerStarting(container containerstore.Container) error {
 	return container.Status.Update(func(status containerstore.Status) (containerstore.Status, error) {
 		// Return error if container is not in created state.
@@ -316,7 +326,9 @@ func resetContainerStarting(container containerstore.Container) error {
 	})
 }
 
-// createContainerLoggers creates container loggers and return write closer for stdout and stderr.
+// createContainerLoggers creates container loggers and returns write closers for
+// stdout and stderr. When tty is true, stderr is not redirected (only stdout
+// is logged). If logPath is empty, discard loggers are returned.
 func (c *criService) createContainerLoggers(logPath string, tty bool) (stdout io.WriteCloser, stderr io.WriteCloser, err error) {
 	if logPath != "" {
 		// Only generate container log when log path is specified.
