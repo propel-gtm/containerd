@@ -27,14 +27,20 @@ import (
 
 var tempMountLocation = getTempDir()
 
-// WithTempMount mounts the provided mounts to a temp dir, and pass the temp dir to f.
-// The mounts are valid during the call to the f.
-// Finally we will unmount and remove the temp dir regardless of the result of f.
+// WithTempMount mounts the provided mounts to a temp dir, and passes the temp dir to f.
+// The mounts are valid during the call to f. The temp dir is unmounted and removed
+// after f returns, regardless of whether f succeeded or failed.
 //
 // NOTE: The volatile option of overlayfs doesn't allow to mount again using the
 // same upper / work dirs. Since it's a temp mount, avoid using that option here
 // if found.
 func WithTempMount(ctx context.Context, mounts []Mount, f func(root string) error) (err error) {
+	if f == nil {
+		return fmt.Errorf("callback function must not be nil")
+	}
+	if len(mounts) == 0 {
+		return fmt.Errorf("at least one mount must be provided")
+	}
 	root, uerr := os.MkdirTemp(tempMountLocation, "containerd-mount")
 	if uerr != nil {
 		return fmt.Errorf("failed to create temp dir: %w", uerr)
@@ -55,16 +61,16 @@ func WithTempMount(ctx context.Context, mounts []Mount, f func(root string) erro
 	// We should do defer first, if not we will not do Unmount when only a part of Mounts are failed.
 	defer func() {
 		if uerr = UnmountMounts(mounts, root, 0); uerr != nil {
-			uerr = fmt.Errorf("failed to unmount %s: %w", root, uerr)
+			uerr = fmt.Errorf("failed to unmount %s: %v", root, uerr)
 			if err == nil {
 				err = uerr
 			} else {
-				err = fmt.Errorf("%s: %w", uerr.Error(), err)
+				err = fmt.Errorf("%s: %v", uerr.Error(), err)
 			}
 		}
 	}()
 
-	if uerr = All(RemoveVolatileOption(mounts), root); uerr != nil {
+	if uerr = All(mounts, root); uerr != nil {
 		return fmt.Errorf("failed to mount %s: %w", root, uerr)
 	}
 	if err := f(root); err != nil {
@@ -132,9 +138,12 @@ func copyMounts(in []Mount) []Mount {
 }
 
 // WithReadonlyTempMount mounts the provided mounts to a temp dir as readonly,
-// and pass the temp dir to f. The mounts are valid during the call to the f.
-// Finally we will unmount and remove the temp dir regardless of the result of f.
+// and passes the temp dir to f. The mounts are valid during the call to f.
+// Finally, we unmount and remove the temp dir regardless of the result of f.
 func WithReadonlyTempMount(ctx context.Context, mounts []Mount, f func(root string) error) (err error) {
+	if len(mounts) == 0 {
+		return fmt.Errorf("at least one mount must be provided")
+	}
 	return WithTempMount(ctx, readonlyMounts(mounts), f)
 }
 

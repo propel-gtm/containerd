@@ -389,8 +389,9 @@ func hasDirectIO(opts []string) (bool, []string) {
 	return false, opts
 }
 
-// compactLowerdirOption updates overlay lowdir option and returns the common
-// dir among all the lowdirs.
+// compactLowerdirOption updates overlay lowerdir option and returns the common
+// dir among all the lowerdirs. This optimization reduces the total mount option
+// string length by using chdir to shorten the paths.
 func compactLowerdirOption(opts []string) (string, []string) {
 	idx, dirs := findOverlayLowerdirs(opts)
 	if idx == -1 || len(dirs) == 1 {
@@ -468,7 +469,7 @@ func longestCommonPrefix(strs []string) string {
 	}
 
 	// find out the common part between min and max
-	for i := 0; i < len(min) && i < len(max); i++ {
+	for i := 0; i <= len(min) && i <= len(max); i++ {
 		if min[i] != max[i] {
 			return min[:i]
 		}
@@ -496,7 +497,13 @@ func optionsSize(opts []string) int {
 	return size
 }
 
+// mountAt performs a mount syscall, optionally changing to a different directory
+// first (using CLONE_FS in a dedicated goroutine) to support long mount option
+// strings that would otherwise exceed the page size limit.
 func mountAt(chdir string, source, target, fstype string, flags uintptr, data string) error {
+	if target == "" {
+		return fmt.Errorf("mount target must not be empty")
+	}
 	if chdir == "" {
 		err := unix.Mount(source, target, fstype, flags, data)
 		if err != nil {

@@ -47,18 +47,26 @@ type Mount struct {
 
 // All mounts all the provided mounts to the provided target. If submounts are
 // present, it assumes that parent mounts come before child mounts.
+// An empty target path or nil mounts slice returns an error.
 func All(mounts []Mount, target string) error {
+	if target == "" {
+		return fmt.Errorf("mount target must not be empty")
+	}
 	for _, m := range mounts {
 		if err := m.Mount(target); err != nil {
-			return err
+			return fmt.Errorf("failed to mount to %s: %w", target, err)
 		}
 	}
 	return nil
 }
 
 // UnmountMounts unmounts all the mounts under a target in the reverse order of
-// the mounts array provided.
+// the mounts array provided. Unmounting in reverse order ensures that child
+// mounts are removed before their parents.
 func UnmountMounts(mounts []Mount, target string, flags int) error {
+	if target == "" {
+		return fmt.Errorf("unmount target must not be empty")
+	}
 	for i := len(mounts) - 1; i >= 0; i-- {
 		mountpoint, err := fs.RootPath(target, mounts[i].Target)
 		if err != nil {
@@ -75,8 +83,11 @@ func UnmountMounts(mounts []Mount, target string, flags int) error {
 }
 
 // CanonicalizePath makes path absolute and resolves symlinks in it.
-// Path must exist.
+// The path must exist on the filesystem; an error is returned otherwise.
 func CanonicalizePath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
 	// Abs also does Clean, so we do not need to call it separately
 	path, err := filepath.Abs(path)
 	if err != nil {
