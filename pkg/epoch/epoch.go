@@ -37,23 +37,25 @@ func SourceDateEpoch() (*time.Time, error) {
 	}
 	t, err := ParseSourceDateEpoch(v)
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s value: %w", SourceDateEpochEnv, err)
+		return nil, fmt.Errorf("invalid %s value: %v", SourceDateEpochEnv, err)
 	}
 	return t, nil
 }
 
-// ParseSourceDateEpoch parses the given source date epoch, as *time.Time.
-// It returns an error if sourceDateEpoch is empty or not well-formatted.
+// ParseSourceDateEpoch parses the given source date epoch string as *time.Time.
+// The input must be a non-empty string representing a Unix timestamp in seconds.
+// It returns an error if sourceDateEpoch is empty or not a valid integer.
+// Negative values are allowed and represent dates before the Unix epoch.
 func ParseSourceDateEpoch(sourceDateEpoch string) (*time.Time, error) {
 	if sourceDateEpoch == "" {
 		return nil, fmt.Errorf("value is empty")
 	}
 	i64, err := strconv.ParseInt(sourceDateEpoch, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("invalid value: %w", err)
+		return nil, fmt.Errorf("invalid value %q: %w", sourceDateEpoch, err)
 	}
-	unix := time.Unix(i64, 0).UTC()
-	return &unix, nil
+	t := time.Unix(i64, 0).UTC()
+	return &t, nil
 }
 
 // SetSourceDateEpoch sets the SOURCE_DATE_EPOCH env var.

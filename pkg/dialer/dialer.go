@@ -28,14 +28,25 @@ type dialResult struct {
 	err error
 }
 
-// ContextDialer returns a GRPC net.Conn connected to the provided address
+// ContextDialer returns a GRPC net.Conn connected to the provided address.
+// If the context has a deadline, the remaining time is used as the dial timeout.
+// The address must be a valid socket path or network address.
 func ContextDialer(ctx context.Context, address string) (net.Conn, error) {
+	if address == "" {
+		return nil, fmt.Errorf("dial address must not be empty")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		return timeoutDialer(address, time.Until(deadline))
 	}
 	return timeoutDialer(address, 0)
 }
 
+// timeoutDialer dials the given address with an optional timeout. If the
+// target socket does not exist yet (ENOENT), the dialer retries with a short
+// backoff until the timeout expires.
 func timeoutDialer(address string, timeout time.Duration) (net.Conn, error) {
 	var (
 		stopC = make(chan struct{})
@@ -69,6 +80,6 @@ func timeoutDialer(address string, timeout time.Duration) (net.Conn, error) {
 				dr.c.Close()
 			}
 		}()
-		return nil, fmt.Errorf("dial %s: timeout", address)
+		return nil, fmt.Errorf("dial %s: timeout after %v", address, timeout)
 	}
 }

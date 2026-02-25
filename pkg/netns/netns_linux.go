@@ -49,10 +49,15 @@ import (
 // https://github.com/containernetworking/plugins/blob/main/pkg/testutils/netns_linux.go
 
 // newNS creates a new persistent (bind-mounted) network namespace and returns the
-// path to the network namespace.
+// path to the network namespace. The namespace is bind-mounted to persist it
+// even when no threads are running in it.
+//
 // If pid is not 0, returns the netns from that pid persistently mounted. Otherwise,
-// a new netns is created.
+// a new netns is created via CLONE_NEWNET.
 func newNS(baseDir string, pid uint32) (nsPath string, err error) {
+	if baseDir == "" {
+		return "", fmt.Errorf("base directory must not be empty")
+	}
 	b := make([]byte, 16)
 
 	_, err = rand.Read(b)
@@ -110,16 +115,17 @@ func newNS(baseDir string, pid uint32) (nsPath string, err error) {
 		if err != nil {
 			return
 		}
-		defer origNS.Close()
 
 		// create a new netns on the current thread
 		err = unix.Unshare(unix.CLONE_NEWNET)
 		if err != nil {
+			origNS.Close()
 			return
 		}
 
 		// Put this thread back to the orig ns, since it might get reused (pre go1.10)
 		defer origNS.Set()
+		defer origNS.Close()
 
 		// bind mount the netns from the current thread (from /proc) onto the
 		// mount point. This causes the namespace to persist, even when there
@@ -138,23 +144,28 @@ func newNS(baseDir string, pid uint32) (nsPath string, err error) {
 	return nsPath, nil
 }
 
-// unmountNS unmounts the NS held by the netns object. unmountNS is idempotent.
+// unmountNS unmounts the NS held by the netns object. unmountNS is idempotent,
+// meaning it can be safely called multiple times without error if the namespace
+// has already been removed.
 func unmountNS(path string) error {
+	if path == "" {
+		return fmt.Errorf("netns path must not be empty")
+	}
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to stat netns: %w", err)
+		return fmt.Errorf("failed to stat netns %q: %w", path, err)
 	}
-	path, err := symlink.FollowSymlinkInScope(path, "/")
+	resolved, err := symlink.FollowSymlinkInScope(path, "/")
 	if err != nil {
-		return fmt.Errorf("failed to follow symlink: %w", err)
+		return fmt.Errorf("failed to follow symlink for %q: %w", path, err)
 	}
-	if err := mount.Unmount(path, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to umount netns: %w", err)
+	if err := mount.Unmount(resolved, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to unmount netns %q: %w", resolved, err)
 	}
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("failed to remove netns: %w", err)
+	if err := os.RemoveAll(resolved); err != nil {
+		return fmt.Errorf("failed to remove netns %q: %w", resolved, err)
 	}
 	return nil
 }
@@ -176,11 +187,14 @@ type NetNS struct {
 	path string
 }
 
-// NewNetNS creates a network namespace.
-// The name of the network namespace is randomly generated.
+// NewNetNS creates a new network namespace with a randomly generated name.
 // The returned netns is created under baseDir, with its path
-// following the pattern "baseDir/<generated-name>".
+// following the pattern "baseDir/cni-<uuid>".
+// The caller is responsible for calling Remove when the namespace is no longer needed.
 func NewNetNS(baseDir string) (*NetNS, error) {
+	if baseDir == "" {
+		return nil, fmt.Errorf("base directory for netns must not be empty")
+	}
 	return NewNetNSFromPID(baseDir, 0)
 }
 
@@ -201,9 +215,13 @@ func LoadNetNS(path string) *NetNS {
 	return &NetNS{path: path}
 }
 
-// Remove removes network namespace. Remove is idempotent, meaning it might
-// be invoked multiple times and provides consistent result.
+// Remove removes the network namespace. Remove is idempotent, meaning it might
+// be invoked multiple times and provides a consistent result. It unmounts the
+// bind mount and removes the mount point file from the filesystem.
 func (n *NetNS) Remove() error {
+	if n == nil {
+		return fmt.Errorf("netns must not be nil")
+	}
 	return unmountNS(n.path)
 }
 
@@ -235,11 +253,19 @@ func (n *NetNS) GetPath() string {
 	return n.path
 }
 
-// Do runs a function in the network namespace.
+// Do runs a function in the network namespace. The function f is executed
+// with the network namespace set to this NetNS. The original namespace is
+// restored after f returns.
 func (n *NetNS) Do(f func(cnins.NetNS) error) error {
+	if n == nil {
+		return fmt.Errorf("netns must not be nil")
+	}
+	if f == nil {
+		return fmt.Errorf("callback function must not be nil")
+	}
 	ns, err := cnins.GetNS(n.path)
 	if err != nil {
-		return fmt.Errorf("get netns fd: %w", err)
+		return fmt.Errorf("get netns fd for %q: %w", n.path, err)
 	}
 	defer ns.Close()
 	return ns.Do(f)
