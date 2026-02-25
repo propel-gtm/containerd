@@ -30,15 +30,20 @@ import (
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
-// RemoveContainer removes the container.
+// RemoveContainer removes the container from the store and cleans up associated
+// resources. If the container is running, it will be forcibly stopped first.
+// The operation is idempotent—calling remove on a non-existent container succeeds.
 func (c *criService) RemoveContainer(ctx context.Context, r *runtime.RemoveContainerRequest) (_ *runtime.RemoveContainerResponse, retErr error) {
 	span := tracing.SpanFromContext(ctx)
 	start := time.Now()
 	ctrID := r.GetContainerId()
+	if err := validateContainerID(ctrID); err != nil {
+		return nil, err
+	}
 	container, err := c.containerStore.Get(ctrID)
 	if err != nil {
 		if !errdefs.IsNotFound(err) {
-			return nil, fmt.Errorf("an error occurred when try to find container %q: %w", ctrID, err)
+			return nil, fmt.Errorf("failed to find container %q in store: %w", ctrID, err)
 		}
 		// Do not return error if container metadata doesn't exist.
 		log.G(ctx).Tracef("RemoveContainer called for container %q that does not exist", ctrID)

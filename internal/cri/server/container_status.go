@@ -30,11 +30,17 @@ import (
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
-// ContainerStatus inspects the container and returns the status.
+// ContainerStatus inspects the container and returns its current status including
+// state, image reference, and resource usage. Returns an error if the container
+// is not found in the store.
 func (c *criService) ContainerStatus(ctx context.Context, r *runtime.ContainerStatusRequest) (*runtime.ContainerStatusResponse, error) {
-	container, err := c.containerStore.Get(r.GetContainerId())
+	containerID := r.GetContainerId()
+	if err := validateContainerID(containerID); err != nil {
+		return nil, err
+	}
+	container, err := c.containerStore.Get(containerID)
 	if err != nil {
-		return nil, fmt.Errorf("an error occurred when try to find container %q: %w", r.GetContainerId(), err)
+		return nil, fmt.Errorf("failed to find container %q in store: %w", containerID, err)
 	}
 
 	// TODO(random-liu): Clean up the following logic in CRI.

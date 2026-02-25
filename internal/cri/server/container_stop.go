@@ -36,6 +36,8 @@ import (
 )
 
 // StopContainer stops a running container with a grace period (i.e., timeout).
+// It retrieves the container from the store and delegates to
+// stopContainerRetryOnConnectionClosed for the actual stop logic.
 func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainerRequest) (*runtime.StopContainerResponse, error) {
 	span := tracing.SpanFromContext(ctx)
 	start := time.Now()
@@ -43,7 +45,7 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 	container, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
 		if !errdefs.IsNotFound(err) {
-			return nil, fmt.Errorf("an error occurred when try to find container %q: %w", r.GetContainerId(), err)
+			return nil, fmt.Errorf("failed to find container %q in store: %w", r.GetContainerId(), err)
 		}
 
 		// The StopContainer RPC is idempotent, and must not return an error if
@@ -108,6 +110,8 @@ func (c *criService) stopContainerRetryOnConnectionClosed(ctx context.Context, c
 }
 
 // stopContainer stops a container based on the container metadata.
+// It handles both running and unknown state containers, sending SIGTERM first
+// when timeout > 0, then SIGKILL if the container does not exit within the grace period.
 func (c *criService) stopContainer(ctx context.Context, container containerstore.Container, timeout time.Duration) error {
 	span := tracing.SpanFromContext(ctx)
 	start := time.Now()

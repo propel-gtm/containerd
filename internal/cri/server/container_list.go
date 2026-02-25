@@ -42,7 +42,9 @@ func (c *criService) ListContainers(ctx context.Context, r *runtime.ListContaine
 	return &runtime.ListContainersResponse{Containers: containers}, nil
 }
 
-// toCRIContainer converts internal container object into CRI container.
+// toCRIContainer converts internal container object into CRI container format.
+// Note that ImageRef and ImageId both use the config digest for ListContainers
+// to avoid per-container image store lookups; ContainerStatus does a full resolution.
 func toCRIContainer(container containerstore.Container) *runtime.Container {
 	status := container.Status.Get()
 	return &runtime.Container{

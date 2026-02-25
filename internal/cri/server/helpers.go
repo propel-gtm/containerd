@@ -138,6 +138,15 @@ func makeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetada
 	}, nameDelimiter)
 }
 
+// validateContainerID checks that the container ID is non-empty and returns
+// an error if invalid. Used for request validation across container RPCs.
+func validateContainerID(id string) error {
+	if id == "" {
+		return fmt.Errorf("container id must not be empty")
+	}
+	return nil
+}
+
 // getContainerRootDir returns the root directory for managing container files,
 // e.g. state checkpoint.
 func (c *criService) getContainerRootDir(id string) string {
