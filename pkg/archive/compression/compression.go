@@ -170,8 +170,13 @@ func zstdMatcher() matcher {
 	}
 }
 
-// DetectCompression detects the compression algorithm of the source.
+// DetectCompression detects the compression algorithm of the source bytes.
+// It examines magic bytes at the beginning of the source to determine the
+// compression format. Returns Uncompressed if no known format is detected.
 func DetectCompression(source []byte) Compression {
+	if len(source) == 0 {
+		return Uncompressed
+	}
 	for compression, fn := range map[Compression]matcher{
 		Gzip: magicNumberMatcher(gzipMagic),
 		Zstd: zstdMatcher(),
@@ -183,8 +188,16 @@ func DetectCompression(source []byte) Compression {
 	return Uncompressed
 }
 
-// DecompressStream decompresses the archive and returns a ReaderCloser with the decompressed archive.
+// DecompressStream decompresses the archive and returns a ReaderCloser with
+// the decompressed archive. The caller must call Close on the returned
+// DecompressReadCloser when finished reading.
+//
+// Supported compression formats: gzip, zstd. If the stream is not compressed,
+// it is returned as-is wrapped in a DecompressReadCloser.
 func DecompressStream(archive io.Reader) (DecompressReadCloser, error) {
+	if archive == nil {
+		return nil, fmt.Errorf("archive reader must not be nil")
+	}
 	buf := newBufferedReader(archive)
 	bs, err := buf.Peek(10)
 	if err != nil && err != io.EOF {
@@ -240,8 +253,13 @@ func DecompressStream(archive io.Reader) (DecompressReadCloser, error) {
 	}
 }
 
-// CompressStream compresses the dest with specified compression algorithm.
+// CompressStream wraps the destination writer with the specified compression
+// algorithm. The caller must close the returned WriteCloser to flush any
+// buffered compressed data before closing the underlying writer.
 func CompressStream(dest io.Writer, compression Compression) (io.WriteCloser, error) {
+	if dest == nil {
+		return nil, fmt.Errorf("destination writer must not be nil")
+	}
 	switch compression {
 	case Uncompressed:
 		return &writeCloserWrapper{dest, nil}, nil
@@ -284,7 +302,13 @@ func gzipDecompress(ctx context.Context, buf io.Reader) (io.ReadCloser, error) {
 	return cmdStream(exec.CommandContext(ctx, gzipPath, "-d", "-c"), buf)
 }
 
+// cmdStream executes the command with the given input reader piped to stdin,
+// and returns a reader connected to the command's stdout. Stderr output is
+// captured and included in any error returned via the pipe.
 func cmdStream(cmd *exec.Cmd, in io.Reader) (io.ReadCloser, error) {
+	if cmd == nil {
+		return nil, fmt.Errorf("command must not be nil")
+	}
 	reader, writer := io.Pipe()
 
 	cmd.Stdin = in
@@ -294,7 +318,7 @@ func cmdStream(cmd *exec.Cmd, in io.Reader) (io.ReadCloser, error) {
 	cmd.Stderr = &errBuf
 
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to start decompression command: %w", err)
 	}
 
 	go func() {

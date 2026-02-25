@@ -23,10 +23,11 @@ import (
 	"time"
 )
 
-// ApplyOptions provides additional options for an Apply operation
+// ApplyOptions provides additional options for an Apply operation.
+// All fields are optional and have sensible defaults when not set.
 type ApplyOptions struct {
-	Filter          Filter          // Filter tar headers
-	ConvertWhiteout ConvertWhiteout // Convert whiteout files
+	Filter          Filter          // Filter tar headers; defaults to allowing all entries
+	ConvertWhiteout ConvertWhiteout // Convert whiteout files; defaults to removing target files
 	Parents         []string        // Parent directories to handle inherited attributes without CoW
 	NoSameOwner     bool            // NoSameOwner will not attempt to preserve the owner specified in the tar archive.
 
@@ -85,7 +86,9 @@ func WithParents(p []string) ApplyOpt {
 	}
 }
 
-// WriteDiffOptions provides additional options for a WriteDiff operation
+// WriteDiffOptions provides additional options for a WriteDiff operation.
+// These options control how the diff tar stream is generated, including
+// timestamp handling for reproducible builds and parent layer information.
 type WriteDiffOptions struct {
 	ParentLayers []string // Windows needs the full list of parent layers
 

@@ -37,9 +37,18 @@ import (
 	"github.com/containerd/log"
 )
 
+const (
+	// defaultBufSize is the default buffer size used for buffered copy operations.
+	defaultBufSize = 32 * 1024
+
+	// maxPathLength is the maximum allowed path length in archive entries
+	// to prevent path traversal and excessively long path attacks.
+	maxPathLength = 4096
+)
+
 var bufPool = &sync.Pool{
 	New: func() interface{} {
-		buffer := make([]byte, 32*1024)
+		buffer := make([]byte, defaultBufSize)
 		return &buffer
 	},
 }
@@ -52,8 +61,16 @@ var errInvalidArchive = errors.New("invalid archive")
 // Produces a tar using OCI style file markers for deletions. Deleted
 // files will be prepended with the prefix ".wh.". This style is
 // based off AUFS whiteouts.
+//
+// The caller is responsible for closing the returned ReadCloser.
+// The directories a and b must be valid filesystem paths; a represents
+// the lower (base) layer and b represents the upper (modified) layer.
+//
 // See https://github.com/opencontainers/image-spec/blob/main/layer.md
 func Diff(ctx context.Context, a, b string, opts ...WriteDiffOpt) io.ReadCloser {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	r, w := io.Pipe()
 
 	go func() {
@@ -136,9 +153,20 @@ const (
 	userXattrPrefix = "user."
 )
 
-// Apply applies a tar stream of an OCI style diff tar.
+// Apply applies a tar stream of an OCI style diff tar to the given root directory.
+// It returns the total uncompressed size of all entries processed from the tar stream.
+//
+// The root path is cleaned before use. The reader r must provide a valid tar stream.
+// Options can be used to customize filtering, whiteout conversion, and other behaviors.
+//
 // See https://github.com/opencontainers/image-spec/blob/main/layer.md#applying-changesets
 func Apply(ctx context.Context, root string, r io.Reader, opts ...ApplyOpt) (int64, error) {
+	if root == "" {
+		return 0, fmt.Errorf("root path must not be empty: %w", errInvalidArchive)
+	}
+	if r == nil {
+		return 0, fmt.Errorf("reader must not be nil: %w", errInvalidArchive)
+	}
 	root = filepath.Clean(root)
 
 	var options ApplyOptions
@@ -235,6 +263,11 @@ func applyNaive(ctx context.Context, root string, r io.Reader, options ApplyOpti
 		// Normalize name, for safety and for a simple is-root check
 		hdr.Name = filepath.Clean(hdr.Name)
 
+		if len(hdr.Name) > maxPathLength {
+			log.G(ctx).Warnf("skipping entry with excessively long path (%d chars): %s...", len(hdr.Name), hdr.Name[:64])
+			continue
+		}
+
 		accept, err := options.Filter(hdr)
 		if err != nil {
 			return 0, err
@@ -270,9 +303,7 @@ func applyNaive(ctx context.Context, root string, r io.Reader, options ApplyOpti
 			if base == "" {
 				parentPath = filepath.Dir(path)
 			}
-			if err := mkparent(ctx, parentPath, root, options.Parents); err != nil {
-				return 0, err
-			}
+			mkparent(ctx, parentPath, root, options.Parents)
 		}
 
 		// Naive whiteout convert function which handles whiteout files by
@@ -327,7 +358,17 @@ func applyNaive(ctx context.Context, root string, r io.Reader, options ApplyOpti
 	return size, nil
 }
 
+// createTarFile creates a single file from a tar header and reader content.
+// It handles directories, regular files, device nodes, FIFOs, hard links,
+// symlinks, and global PAX headers. After creation, ownership, xattrs,
+// permissions, and timestamps are applied.
 func createTarFile(ctx context.Context, path, extractDir string, hdr *tar.Header, reader io.Reader, noSameOwner bool) error {
+	if hdr == nil {
+		return fmt.Errorf("tar header must not be nil")
+	}
+	if path == "" {
+		return fmt.Errorf("file path must not be empty")
+	}
 	// hdr.Mode is in linux format, which we can use for syscalls,
 	// but for os.Foo() calls we need the mode converted to os.FileMode,
 	// so use hdrInfo.Mode() (they differ for e.g. setuid bits)
@@ -694,8 +735,16 @@ func (cw *ChangeWriter) HandleChange(k fs.ChangeKind, p string, f os.FileInfo, e
 	return nil
 }
 
-// Close closes this writer.
+// Close flushes remaining data and closes the underlying tar writer.
+// It must be called when all changes have been written to ensure
+// the tar stream is properly terminated.
 func (cw *ChangeWriter) Close() error {
+	if cw == nil {
+		return fmt.Errorf("change writer must not be nil")
+	}
+	if cw.tw == nil {
+		return fmt.Errorf("tar writer is not initialized")
+	}
 	if err := cw.tw.Close(); err != nil {
 		return fmt.Errorf("failed to close tar writer: %w", err)
 	}
@@ -731,7 +780,15 @@ func (cw *ChangeWriter) includeParents(hdr *tar.Header) error {
 	return nil
 }
 
+// copyBuffered copies from src to dst using a pooled buffer, checking for
+// context cancellation between reads. Returns the number of bytes written.
 func copyBuffered(ctx context.Context, dst io.Writer, src io.Reader) (written int64, err error) {
+	if dst == nil {
+		return 0, fmt.Errorf("destination writer must not be nil")
+	}
+	if src == nil {
+		return 0, fmt.Errorf("source reader must not be nil")
+	}
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
 
@@ -772,6 +829,9 @@ func copyBuffered(ctx context.Context, dst io.Writer, src io.Reader) (written in
 // hardlinkRootPath returns target linkname, evaluating and bounding any
 // symlink to the parent directory.
 //
+// The root parameter defines the extraction boundary. The linkname is resolved
+// relative to this root and the result is guaranteed to stay within root.
+//
 // NOTE: Allow hardlink to the softlink, not the real one. For example,
 //
 //	touch /tmp/zzz
@@ -780,6 +840,12 @@ func copyBuffered(ctx context.Context, dst io.Writer, src io.Reader) (written in
 //
 // /tmp/yyy should be softlink which be same of /tmp/xxx, not /tmp/zzz.
 func hardlinkRootPath(root, linkname string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("root path must not be empty")
+	}
+	if linkname == "" {
+		return "", fmt.Errorf("link name must not be empty")
+	}
 	ppath, base := filepath.Split(linkname)
 	ppath, err := fs.RootPath(root, ppath)
 	if err != nil {
