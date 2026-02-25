@@ -39,11 +39,10 @@ func (e *Envelope) Field(fieldpath []string) (string, bool) {
 	}
 
 	switch fieldpath[0] {
-	// unhandled: timestamp
 	case "namespace":
-		return e.Namespace, len(e.Namespace) > 0
+		return e.Namespace, true
 	case "topic":
-		return e.Topic, len(e.Topic) > 0
+		return e.Topic, true
 	case "event":
 		decoded, err := typeurl.UnmarshalAny(e.Event)
 		if err != nil {

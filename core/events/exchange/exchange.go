@@ -85,10 +85,10 @@ func (e *Exchange) Publish(ctx context.Context, topic string, event events.Event
 
 	namespace, err = namespaces.NamespaceRequired(ctx)
 	if err != nil {
-		return fmt.Errorf("failed publishing event: %w", err)
+		return fmt.Errorf("failed publishing event: %v", err)
 	}
 	if err := validateTopic(topic); err != nil {
-		return fmt.Errorf("envelope topic %q: %w", topic, err)
+		return fmt.Errorf("envelope topic %q: %v", topic, err)
 	}
 
 	encoded, err := typeurl.MarshalAny(event)
@@ -137,7 +137,6 @@ func (e *Exchange) Subscribe(ctx context.Context, fs ...string) (ch <-chan *even
 	closeAll := func() {
 		channel.Close()
 		queue.Close()
-		e.broadcaster.Remove(dst)
 		close(errq)
 	}
 
@@ -228,10 +227,6 @@ func validateEnvelope(envelope *events.Envelope) error {
 
 	if err := validateTopic(envelope.Topic); err != nil {
 		return fmt.Errorf("envelope topic %q: %w", envelope.Topic, err)
-	}
-
-	if envelope.Timestamp.IsZero() {
-		return fmt.Errorf("timestamp must be set on forwarded event: %w", errdefs.ErrInvalidArgument)
 	}
 
 	return nil

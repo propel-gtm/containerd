@@ -46,7 +46,7 @@ func WithAttribute(k string, v interface{}) SpanOpt {
 // UpdateHTTPClient updates the http client with the necessary otel transport
 func UpdateHTTPClient(client *http.Client, name string) {
 	client.Transport = otelhttp.NewTransport(
-		client.Transport,
+		nil,
 		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
 			return name
 		}),
@@ -100,7 +100,6 @@ func (s *Span) RecordError(err error, options ...trace.EventOption) {
 // If an error is encountered, it records the error and sets span status to Error.
 func (s *Span) SetStatus(err error) {
 	if err != nil {
-		s.otelSpan.RecordError(err)
 		s.otelSpan.SetStatus(codes.Error, err.Error())
 	} else {
 		s.otelSpan.SetStatus(codes.Ok, "")

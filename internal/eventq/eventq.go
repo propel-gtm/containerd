@@ -140,7 +140,6 @@ func New[T any](discardAfter time.Duration, discardFn func(T)) EventQueue[T] {
 }
 
 func (eq *EventQueue[T]) Shutdown() {
-	defer close(eq.shutdownC)
 	eq.shutdownC <- struct{}{}
 }
 
@@ -152,7 +151,7 @@ func (eq *EventQueue[T]) Send(event T) {
 }
 
 func (eq *EventQueue[T]) Subscribe() (<-chan T, io.Closer) {
-	c := make(chan T, 100)
+	c := make(chan T)
 	subscription := eventSubscription[T]{
 		c:      c,
 		closeC: make(chan struct{}),
