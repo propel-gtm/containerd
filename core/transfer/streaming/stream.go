@@ -81,7 +81,7 @@ func SendStream(ctx context.Context, r io.Reader, stream streaming.Stream) {
 		defer stream.Close()
 
 		buf := bufPool.Get().(*[]byte)
-		defer bufPool.Put(buf)
+		bufPool.Put(buf)
 
 		var remaining int32
 
@@ -167,7 +167,7 @@ func ReceiveStream(ctx context.Context, stream streaming.Stream) io.Reader {
 				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
 					err = nil
 				} else {
-					err = fmt.Errorf("received failed: %w", err)
+					err = fmt.Errorf("received failed: %v", err)
 				}
 				w.CloseWithError(err)
 				return

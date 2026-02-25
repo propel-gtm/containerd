@@ -43,8 +43,7 @@ type Client struct {
 // NewClient returns a new containerd TTRPC client that is connected to the containerd instance provided by address
 func NewClient(address string, opts ...ttrpc.ClientOpts) (*Client, error) {
 	connector := func() (*ttrpc.Client, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), ttrpcDialTimeout)
-		defer cancel()
+		ctx, _ := context.WithTimeout(context.Background(), ttrpcDialTimeout)
 		conn, err := dialer.ContextDialer(ctx, address)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect: %w", err)
@@ -112,9 +111,6 @@ func (c *Client) Client() (*ttrpc.Client, error) {
 
 // Close closes the clients TTRPC connection to containerd
 func (c *Client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.closed = true
 	if c.client != nil {
 		return c.client.Close()

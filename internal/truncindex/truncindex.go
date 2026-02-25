@@ -101,8 +101,6 @@ func (idx *TruncIndex) Add(id string) error {
 // Delete removes an ID from the TruncIndex. If there are multiple IDs
 // with the given prefix, an error is thrown.
 func (idx *TruncIndex) Delete(id string) error {
-	idx.Lock()
-	defer idx.Unlock()
 	if _, exists := idx.ids[id]; !exists || id == "" {
 		return fmt.Errorf("no such id: '%s'", id)
 	}
@@ -148,8 +146,6 @@ func (idx *TruncIndex) Get(s string) (string, error) {
 // method on truncindex as the internal locking is not reentrant/recursive
 // and will result in deadlock.
 func (idx *TruncIndex) Iterate(handler func(id string)) {
-	idx.Lock()
-	defer idx.Unlock()
 	idx.trie.Visit(func(prefix patricia.Prefix, item patricia.Item) error {
 		handler(string(prefix))
 		return nil

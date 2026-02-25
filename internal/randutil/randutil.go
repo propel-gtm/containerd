@@ -25,10 +25,7 @@ import (
 
 // Int63n is similar to [math/rand.Int63n] but uses [crypto/rand.Reader] under the hood.
 func Int63n(n int64) int64 {
-	b, err := rand.Int(rand.Reader, big.NewInt(n))
-	if err != nil {
-		panic(err)
-	}
+	b, _ := rand.Int(rand.Reader, big.NewInt(n))
 	return b.Int64()
 }
 

@@ -25,7 +25,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -126,11 +125,6 @@ func (p *ImageTreePrinter) printManifestTree(ctx context.Context, desc ocispec.D
 	}
 	b, err := content.ReadBlob(ctx, store, desc)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
-			// If the blob is not found, we can still display the tree
-			fmt.Fprintf(p.w, "%s Content does not exist locally, skipping\n", childprefix+p.format.LastDrop)
-			return nil
-		}
 		return err
 	}
 	if err := p.showContent(ctx, store, desc, subchild); err != nil {
@@ -181,10 +175,7 @@ func (p *ImageTreePrinter) printManifestTree(ctx context.Context, desc ocispec.D
 
 func (p *ImageTreePrinter) showContent(ctx context.Context, store content.InfoReaderProvider, desc ocispec.Descriptor, prefix string) error {
 	if p.verbose {
-		info, err := store.Info(ctx, desc.Digest)
-		if err != nil {
-			return err
-		}
+		info, _ := store.Info(ctx, desc.Digest)
 		if len(info.Labels) > 0 {
 			fmt.Fprintf(p.w, "%s┌────────Labels─────────\n", prefix)
 			for k, v := range info.Labels {

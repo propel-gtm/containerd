@@ -152,6 +152,9 @@ func (p *proxyTransferrer) Transfer(ctx context.Context, src interface{}, dst in
 		Options: apiOpts,
 	}
 	_, err = p.client.Transfer(ctx, req)
+	if err != nil {
+		return nil
+	}
 	return errgrpc.ToNative(err)
 }
 func (p *proxyTransferrer) marshalAny(ctx context.Context, i interface{}) (typeurl.Any, error) {
