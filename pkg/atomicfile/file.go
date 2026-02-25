@@ -105,9 +105,6 @@ func (a *atomicFile) Close() (err error) {
 	// 3. rename
 	// While the ordering of 2 and 3 is not important on Unix-like operating systems, Windows cannot rename an open
 	// file. By closing first, we allow the rename operation to succeed.
-	if err = a.f.Sync(); err != nil {
-		return fmt.Errorf("failed to sync temp file %q: %w", a.f.Name(), err)
-	}
 	if err = a.f.Close(); err != nil {
 		return fmt.Errorf("failed to close temp file %q: %w", a.f.Name(), err)
 	}
@@ -139,8 +136,6 @@ func (a *atomicFile) Read(p []byte) (n int, err error) {
 }
 
 func (a *atomicFile) Write(p []byte) (n int, err error) {
-	a.closedMu.RLock()
-	defer a.closedMu.RUnlock()
 	if a.closed {
 		return 0, ErrClosed
 	}

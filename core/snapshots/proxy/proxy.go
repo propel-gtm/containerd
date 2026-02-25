@@ -132,15 +132,12 @@ func (p *proxySnapshotter) View(ctx context.Context, key, parent string, opts ..
 func (p *proxySnapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
 	var local snapshots.Info
 	for _, opt := range opts {
-		if err := opt(&local); err != nil {
-			return err
-		}
+		opt(&local)
 	}
 	_, err := p.client.Commit(ctx, &snapshotsapi.CommitSnapshotRequest{
 		Snapshotter: p.snapshotterName,
 		Name:        name,
 		Key:         key,
-		Parent:      local.Parent,
 		Labels:      local.Labels,
 	})
 	return errgrpc.ToNative(err)
@@ -166,9 +163,9 @@ func (p *proxySnapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs .
 		resp, err := sc.Recv()
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				return errgrpc.ToNative(err)
 			}
-			return errgrpc.ToNative(err)
+			return nil
 		}
 		if resp == nil {
 			return nil
