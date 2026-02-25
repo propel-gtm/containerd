@@ -30,14 +30,19 @@ import (
 	"github.com/containerd/continuity/fs"
 )
 
+// snapshotter implements snapshots.Snapshotter using the native overlay/btrfs
+// driver with a local metadata store.
 type snapshotter struct {
 	root string
 	ms   *storage.MetaStore
 }
 
-// NewSnapshotter returns a Snapshotter which copies layers on the underlying
-// file system. A metadata file is stored under the root.
+// NewSnapshotter returns a Snapshotter that stores layers on the underlying
+// filesystem. Creates root, root/snapshots, and metadata.db under root.
 func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
+	if root == "" {
+		return nil, fmt.Errorf("snapshot root must not be empty")
+	}
 	if err := os.MkdirAll(root, 0777); err != nil {
 		return nil, err
 	}
@@ -73,6 +78,7 @@ func (o *snapshotter) Stat(ctx context.Context, key string) (info snapshots.Info
 	return info, nil
 }
 
+// Update modifies snapshot info. Only fields in fieldpaths are updated.
 func (o *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpaths ...string) (_ snapshots.Info, err error) {
 	err = o.ms.WithTransaction(ctx, true, func(ctx context.Context) error {
 		info, err = storage.UpdateInfo(ctx, info, fieldpaths...)
@@ -85,6 +91,7 @@ func (o *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpath
 	return info, nil
 }
 
+// Usage returns disk usage for the snapshot identified by key.
 func (o *snapshotter) Usage(ctx context.Context, key string) (usage snapshots.Usage, err error) {
 	var (
 		id   string
@@ -110,10 +117,12 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (usage snapshots.Us
 	return usage, nil
 }
 
+// Prepare creates an active (read-write) snapshot. Parent may be empty for base.
 func (o *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	return o.createSnapshot(ctx, snapshots.KindActive, key, parent, opts)
 }
 
+// View creates a read-only view snapshot. Parent may be empty for base.
 func (o *snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	return o.createSnapshot(ctx, snapshots.KindView, key, parent, opts)
 }
@@ -139,6 +148,7 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) (_ []mount.Mount, 
 	return o.mounts(s), nil
 }
 
+// Commit converts the active snapshot key into a committed snapshot named name.
 func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
 	return o.ms.WithTransaction(ctx, true, func(ctx context.Context) error {
 		id, _, _, err := storage.GetInfo(ctx, key)

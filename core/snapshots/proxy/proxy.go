@@ -28,8 +28,9 @@ import (
 	protobuftypes "github.com/containerd/containerd/v2/pkg/protobuf/types"
 )
 
-// NewSnapshotter returns a new Snapshotter which communicates over a GRPC
-// connection using the containerd snapshot GRPC API.
+// NewSnapshotter returns a Snapshotter that proxies requests over gRPC using
+// the containerd snapshot API. The snapshotterName identifies which snapshotter
+// backend to use on the server.
 func NewSnapshotter(client snapshotsapi.SnapshotsClient, snapshotterName string) snapshots.Snapshotter {
 	return &proxySnapshotter{
 		client:          client,
@@ -37,11 +38,13 @@ func NewSnapshotter(client snapshotsapi.SnapshotsClient, snapshotterName string)
 	}
 }
 
+// proxySnapshotter implements snapshots.Snapshotter by forwarding to a gRPC service.
 type proxySnapshotter struct {
 	client          snapshotsapi.SnapshotsClient
 	snapshotterName string
 }
 
+// Stat returns the snapshot info for the given key.
 func (p *proxySnapshotter) Stat(ctx context.Context, key string) (snapshots.Info, error) {
 	resp, err := p.client.Stat(ctx,
 		&snapshotsapi.StatSnapshotRequest{
@@ -54,6 +57,7 @@ func (p *proxySnapshotter) Stat(ctx context.Context, key string) (snapshots.Info
 	return InfoFromProto(resp.Info), nil
 }
 
+// Update modifies snapshot info. Only fields in fieldpaths are updated.
 func (p *proxySnapshotter) Update(ctx context.Context, info snapshots.Info, fieldpaths ...string) (snapshots.Info, error) {
 	resp, err := p.client.Update(ctx,
 		&snapshotsapi.UpdateSnapshotRequest{
@@ -69,6 +73,7 @@ func (p *proxySnapshotter) Update(ctx context.Context, info snapshots.Info, fiel
 	return InfoFromProto(resp.Info), nil
 }
 
+// Usage returns disk usage for the snapshot identified by key.
 func (p *proxySnapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, error) {
 	resp, err := p.client.Usage(ctx, &snapshotsapi.UsageRequest{
 		Snapshotter: p.snapshotterName,
@@ -80,6 +85,7 @@ func (p *proxySnapshotter) Usage(ctx context.Context, key string) (snapshots.Usa
 	return UsageFromProto(resp), nil
 }
 
+// Mounts returns the mounts for the active snapshot identified by key.
 func (p *proxySnapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, error) {
 	resp, err := p.client.Mounts(ctx, &snapshotsapi.MountsRequest{
 		Snapshotter: p.snapshotterName,
@@ -91,6 +97,7 @@ func (p *proxySnapshotter) Mounts(ctx context.Context, key string) ([]mount.Moun
 	return mount.FromProto(resp.Mounts), nil
 }
 
+// Prepare creates an active snapshot for writing. Parent may be empty for base.
 func (p *proxySnapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	var local snapshots.Info
 	for _, opt := range opts {
@@ -110,6 +117,7 @@ func (p *proxySnapshotter) Prepare(ctx context.Context, key, parent string, opts
 	return mount.FromProto(resp.Mounts), nil
 }
 
+// View creates a read-only view snapshot. Parent may be empty for base.
 func (p *proxySnapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	var local snapshots.Info
 	for _, opt := range opts {
@@ -129,6 +137,7 @@ func (p *proxySnapshotter) View(ctx context.Context, key, parent string, opts ..
 	return mount.FromProto(resp.Mounts), nil
 }
 
+// Commit converts the active snapshot key into a committed snapshot named name.
 func (p *proxySnapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
 	var local snapshots.Info
 	for _, opt := range opts {
@@ -143,6 +152,7 @@ func (p *proxySnapshotter) Commit(ctx context.Context, name, key string, opts ..
 	return errgrpc.ToNative(err)
 }
 
+// Remove deletes the snapshot identified by key.
 func (p *proxySnapshotter) Remove(ctx context.Context, key string) error {
 	_, err := p.client.Remove(ctx, &snapshotsapi.RemoveSnapshotRequest{
 		Snapshotter: p.snapshotterName,
@@ -151,6 +161,7 @@ func (p *proxySnapshotter) Remove(ctx context.Context, key string) error {
 	return errgrpc.ToNative(err)
 }
 
+// Walk iterates over snapshots matching the filters, calling fn for each.
 func (p *proxySnapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
 	sc, err := p.client.List(ctx, &snapshotsapi.ListSnapshotsRequest{
 		Snapshotter: p.snapshotterName,
@@ -178,10 +189,12 @@ func (p *proxySnapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs .
 	}
 }
 
+// Close releases resources. For the proxy this is a no-op.
 func (p *proxySnapshotter) Close() error {
 	return nil
 }
 
+// Cleanup removes orphaned resources from the remote snapshotter.
 func (p *proxySnapshotter) Cleanup(ctx context.Context) error {
 	_, err := p.client.Cleanup(ctx, &snapshotsapi.CleanupRequest{
 		Snapshotter: p.snapshotterName,

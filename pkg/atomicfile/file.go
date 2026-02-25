@@ -45,7 +45,8 @@ import (
 	"sync"
 )
 
-// File is an io.ReadWriteCloser that can also be Canceled if a change needs to be abandoned.
+// File is an io.ReadWriteCloser for atomic writes. Call Cancel to abandon
+// changes without committing; Close commits by renaming the temp file.
 type File interface {
 	io.ReadWriteCloser
 	// Cancel abandons a change to a file. This can be called if a write fails or another error occurs.
@@ -66,6 +67,7 @@ func New(name string, mode os.FileMode) (File, error) {
 	return newFile(name, mode)
 }
 
+// atomicFile implements File by writing to a temp file and renaming on Close.
 type atomicFile struct {
 	name     string
 	f        *os.File
@@ -73,6 +75,7 @@ type atomicFile struct {
 	closedMu sync.RWMutex
 }
 
+// newFile creates the platform-specific atomic file implementation.
 func newFile(name string, mode os.FileMode) (File, error) {
 	dir := filepath.Dir(name)
 	f, err := os.CreateTemp(dir, "")
@@ -85,6 +88,7 @@ func newFile(name string, mode os.FileMode) (File, error) {
 	return &atomicFile{name: name, f: f}, nil
 }
 
+// Close syncs and renames the temp file to the final name.
 func (a *atomicFile) Close() (err error) {
 	a.closedMu.Lock()
 	defer a.closedMu.Unlock()
@@ -114,6 +118,7 @@ func (a *atomicFile) Close() (err error) {
 	return nil
 }
 
+// Cancel abandons the write by removing the temp file.
 func (a *atomicFile) Cancel() error {
 	a.closedMu.Lock()
 	defer a.closedMu.Unlock()
@@ -126,6 +131,7 @@ func (a *atomicFile) Cancel() error {
 	return os.Remove(a.f.Name())
 }
 
+// Read reads from the temp file. Returns ErrClosed if already closed.
 func (a *atomicFile) Read(p []byte) (n int, err error) {
 	a.closedMu.RLock()
 	defer a.closedMu.RUnlock()
@@ -135,6 +141,7 @@ func (a *atomicFile) Read(p []byte) (n int, err error) {
 	return a.f.Read(p)
 }
 
+// Write writes to the temp file. Returns ErrClosed if already closed.
 func (a *atomicFile) Write(p []byte) (n int, err error) {
 	if a.closed {
 		return 0, ErrClosed

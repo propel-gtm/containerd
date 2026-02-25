@@ -32,7 +32,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// Transactor is used to finalize an active transaction.
+// Transactor finalizes a transaction. Call Commit for writable, Rollback for read-only.
 type Transactor interface {
 	// Commit commits any changes made during the transaction. On error a
 	// caller is expected to clean up any resources which would have relied
@@ -46,26 +46,19 @@ type Transactor interface {
 	Rollback() error
 }
 
-// Snapshot hold the metadata for an active or view snapshot transaction. The
-// ParentIDs hold the snapshot identifiers for the committed snapshots this
-// active or view is based on. The ParentIDs are ordered from the highest to the
-// lowest base, meaning they should be applied in order from the last index to
-// the first index. The first index should always be considered the active
-// snapshot's immediate parent.
+// Snapshot holds metadata for an active or view transaction. ParentIDs are
+// ordered from highest to lowest base; apply from last index to first.
 type Snapshot struct {
 	Kind      snapshots.Kind
 	ID        string
 	ParentIDs []string
 }
 
-// Opt allows to customize BoltDB options. Use with care.
+// Opt customizes BoltDB options when creating a MetaStore. Use with care.
 type Opt func(*bolt.Options) error
 
-// MetaStore is used to store metadata related to a snapshot driver. The
-// MetaStore is intended to store metadata related to name, state and
-// parentage. Using the MetaStore is not required to implement a snapshot
-// driver but can be used to handle the persistence and transactional
-// complexities of a driver implementation.
+// MetaStore stores snapshot metadata (name, state, parentage) in a BoltDB file.
+// Not required for snapshot drivers but simplifies transactional consistency.
 type MetaStore struct {
 	dbfile string
 
@@ -74,10 +67,8 @@ type MetaStore struct {
 	opts bolt.Options
 }
 
-// NewMetaStore returns a snapshot MetaStore for storage of metadata related to
-// a snapshot driver backed by a bolt file database. This implementation is
-// strongly consistent and does all metadata changes in a transaction to prevent
-// against process crashes causing inconsistent metadata state.
+// NewMetaStore creates a MetaStore backed by a BoltDB file at dbfile.
+// All metadata changes use transactions for crash consistency.
 func NewMetaStore(dbfile string, opts ...Opt) (*MetaStore, error) {
 	store := &MetaStore{
 		dbfile: dbfile,
