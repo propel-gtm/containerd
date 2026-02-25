@@ -32,12 +32,12 @@ import (
 	goevents "github.com/docker/go-events"
 )
 
-// Exchange broadcasts events
+// Exchange is the in-process event bus. Implements Publisher, Forwarder, and Subscriber.
 type Exchange struct {
 	broadcaster *goevents.Broadcaster
 }
 
-// NewExchange returns a new event Exchange
+// NewExchange creates a new event exchange for publishing and subscribing.
 func NewExchange() *Exchange {
 	return &Exchange{
 		broadcaster: goevents.NewBroadcaster(),
@@ -74,9 +74,8 @@ func (e *Exchange) Forward(ctx context.Context, envelope *events.Envelope) (err 
 	return e.broadcaster.Write(envelope)
 }
 
-// Publish packages and sends an event. The caller will be considered the
-// initial publisher of the event. This means the timestamp will be calculated
-// at this point and this method may read from the calling context.
+// Publish packages the event with namespace from context and timestamp, then
+// broadcasts it. Topic must start with / and have valid components.
 func (e *Exchange) Publish(ctx context.Context, topic string, event events.Event) (err error) {
 	var (
 		namespace string
@@ -118,7 +117,7 @@ func (e *Exchange) Publish(ctx context.Context, topic string, event events.Event
 	return e.broadcaster.Write(&envelope)
 }
 
-// Subscribe to events on the exchange. Events are sent through the returned
+// Subscribe creates a subscription. Events matching filters are sent on ch.
 // channel ch. If an error is encountered, it will be sent on channel errs and
 // errs will be closed. To end the subscription, cancel the provided context.
 //
@@ -197,6 +196,7 @@ func (e *Exchange) Subscribe(ctx context.Context, fs ...string) (ch <-chan *even
 	return
 }
 
+// validateTopic ensures the topic is non-empty, starts with /, and has valid components.
 func validateTopic(topic string) error {
 	if topic == "" {
 		return fmt.Errorf("must not be empty: %w", errdefs.ErrInvalidArgument)
@@ -220,6 +220,7 @@ func validateTopic(topic string) error {
 	return nil
 }
 
+// validateEnvelope checks namespace and topic are valid before forwarding.
 func validateEnvelope(envelope *events.Envelope) error {
 	if err := identifiers.Validate(envelope.Namespace); err != nil {
 		return fmt.Errorf("event envelope has invalid namespace: %w", err)
@@ -232,6 +233,7 @@ func validateEnvelope(envelope *events.Envelope) error {
 	return nil
 }
 
+// adapt converts an event to a filters.Adaptor for filter matching.
 func adapt(ev interface{}) filters.Adaptor {
 	if adaptor, ok := ev.(filters.Adaptor); ok {
 		return adaptor

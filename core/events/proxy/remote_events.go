@@ -32,12 +32,14 @@ import (
 	"github.com/containerd/containerd/v2/pkg/protobuf"
 )
 
+// EventService combines Publisher, Forwarder, and Subscriber for remote event access.
 type EventService interface {
 	events.Publisher
 	events.Forwarder
 	events.Subscriber
 }
 
+// NewRemoteEvents creates an EventService that proxies to a gRPC or TTRPC events client.
 func NewRemoteEvents(client any) EventService {
 	switch c := client.(type) {
 	case api.EventsClient:
@@ -61,10 +63,12 @@ func NewRemoteEvents(client any) EventService {
 	}
 }
 
+// grpcEventsProxy implements EventService over gRPC.
 type grpcEventsProxy struct {
 	client api.EventsClient
 }
 
+// Publish sends the event to the remote events service.
 func (p *grpcEventsProxy) Publish(ctx context.Context, topic string, event events.Event) error {
 	evt, err := typeurl.MarshalAny(event)
 	if err != nil {
@@ -80,6 +84,7 @@ func (p *grpcEventsProxy) Publish(ctx context.Context, topic string, event event
 	return nil
 }
 
+// Forward forwards the envelope to the remote service.
 func (p *grpcEventsProxy) Forward(ctx context.Context, envelope *events.Envelope) error {
 	req := &api.ForwardRequest{
 		Envelope: &types.Envelope{
@@ -95,6 +100,7 @@ func (p *grpcEventsProxy) Forward(ctx context.Context, envelope *events.Envelope
 	return nil
 }
 
+// Subscribe returns a channel of events matching the filters.
 func (p *grpcEventsProxy) Subscribe(ctx context.Context, filters ...string) (ch <-chan *events.Envelope, errs <-chan error) {
 	var (
 		evq  = make(chan *events.Envelope)
@@ -142,10 +148,12 @@ func (p *grpcEventsProxy) Subscribe(ctx context.Context, filters ...string) (ch 
 	return ch, errs
 }
 
+// ttrpcEventsProxy implements EventService over TTRPC.
 type ttrpcEventsProxy struct {
 	client api.TTRPCEventsClient
 }
 
+// Publish sends the event to the remote TTRPC events service.
 func (p *ttrpcEventsProxy) Publish(ctx context.Context, topic string, event events.Event) error {
 	evt, err := typeurl.MarshalAny(event)
 	if err != nil {
@@ -161,6 +169,7 @@ func (p *ttrpcEventsProxy) Publish(ctx context.Context, topic string, event even
 	return nil
 }
 
+// Forward forwards the envelope to the remote TTRPC service.
 func (p *ttrpcEventsProxy) Forward(ctx context.Context, envelope *events.Envelope) error {
 	req := &api.ForwardRequest{
 		Envelope: &types.Envelope{
@@ -176,6 +185,7 @@ func (p *ttrpcEventsProxy) Forward(ctx context.Context, envelope *events.Envelop
 	return nil
 }
 
+// Subscribe returns a channel of events matching the filters.
 func (p *ttrpcEventsProxy) Subscribe(ctx context.Context, filters ...string) (ch <-chan *events.Envelope, errs <-chan error) {
 	var (
 		evq  = make(chan *events.Envelope)

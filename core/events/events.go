@@ -23,7 +23,7 @@ import (
 	"github.com/containerd/typeurl/v2"
 )
 
-// Envelope provides the packaging for an event.
+// Envelope wraps an event with metadata: timestamp, namespace, and topic.
 type Envelope struct {
 	Timestamp time.Time
 	Namespace string
@@ -31,8 +31,8 @@ type Envelope struct {
 	Event     typeurl.Any
 }
 
-// Field returns the value for the given fieldpath as a string, if defined.
-// If the value is not defined, the second value will be false.
+// Field returns the value for the given fieldpath as a string. Used for
+// filter matching. Returns ("", false) if the path is empty or not found.
 func (e *Envelope) Field(fieldpath []string) (string, bool) {
 	if len(fieldpath) == 0 {
 		return "", false
@@ -60,20 +60,20 @@ func (e *Envelope) Field(fieldpath []string) (string, bool) {
 	return "", false
 }
 
-// Event is a generic interface for any type of event
+// Event is a generic interface for any type of event.
 type Event interface{}
 
-// Publisher posts the event.
+// Publisher publishes events to a topic. Events are distributed to subscribers.
 type Publisher interface {
 	Publish(ctx context.Context, topic string, event Event) error
 }
 
-// Forwarder forwards an event to the underlying event bus
+// Forwarder forwards a pre-packaged envelope to the event bus.
 type Forwarder interface {
 	Forward(ctx context.Context, envelope *Envelope) error
 }
 
-// Subscriber allows callers to subscribe to events
+// Subscriber subscribes to events matching the given filters.
 type Subscriber interface {
 	Subscribe(ctx context.Context, filters ...string) (ch <-chan *Envelope, errs <-chan error)
 }

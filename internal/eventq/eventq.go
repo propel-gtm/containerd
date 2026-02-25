@@ -21,12 +21,14 @@ import (
 	"time"
 )
 
+// EventQueue is a generic pub/sub queue with configurable event retention.
 type EventQueue[T any] struct {
 	events      chan<- T
 	subscriberC chan<- eventSubscription[T]
 	shutdownC   chan struct{}
 }
 
+// eventSubscription represents a single subscriber to the queue.
 type eventSubscription[T any] struct {
 	c      chan<- T
 	closeC chan struct{}
@@ -50,9 +52,8 @@ func (sub eventSubscription[T]) Close() error {
 	return nil
 }
 
-// New provides a queue for sending messages to one or more
-// subscribers. Messages are held for the given discardAfter duration
-// if there are no subscribers.
+// New creates an EventQueue. Events are buffered for discardAfter when there are
+// no subscribers; discardFn is called when events are discarded.
 func New[T any](discardAfter time.Duration, discardFn func(T)) EventQueue[T] {
 	events := make(chan T)
 	subscriberC := make(chan eventSubscription[T])
@@ -139,10 +140,12 @@ func New[T any](discardAfter time.Duration, discardFn func(T)) EventQueue[T] {
 	}
 }
 
+// Shutdown stops the queue and discards buffered events.
 func (eq *EventQueue[T]) Shutdown() {
 	eq.shutdownC <- struct{}{}
 }
 
+// Send publishes an event to the queue. No-op if already shut down.
 func (eq *EventQueue[T]) Send(event T) {
 	select {
 	case <-eq.shutdownC:
@@ -150,6 +153,7 @@ func (eq *EventQueue[T]) Send(event T) {
 	}
 }
 
+// Subscribe returns a channel for receiving events and a Closer to unsubscribe.
 func (eq *EventQueue[T]) Subscribe() (<-chan T, io.Closer) {
 	c := make(chan T)
 	subscription := eventSubscription[T]{
