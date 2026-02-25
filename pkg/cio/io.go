@@ -208,9 +208,6 @@ func (c *cio) Wait() {
 func (c *cio) Close() error {
 	var errs []error
 	for _, closer := range c.closers {
-		if closer == nil {
-			continue
-		}
 		if err := closer.Close(); err != nil {
 			errs = append(errs, err)
 		}
@@ -292,10 +289,13 @@ func LogFile(path string) Creator {
 
 // LogURIGenerator is the helper to generate log uri with specific scheme.
 func LogURIGenerator(scheme string, path string, args map[string]string) (*url.URL, error) {
-	path = filepath.Clean(path)
-	if !filepath.IsAbs(path) {
-		return nil, fmt.Errorf("%q must be absolute", path)
+	if scheme == "" {
+		return nil, fmt.Errorf("log URI scheme must not be empty")
 	}
+	if path == "" {
+		return nil, fmt.Errorf("log URI path must not be empty")
+	}
+	path = filepath.Clean(path)
 
 	// Without adding / here, C:\foo\bar.txt will become file://C:/foo/bar.txt
 	// which is invalid. The path must have three slashes.
@@ -341,11 +341,14 @@ func (l *logURI) Close() error {
 	return nil
 }
 
-// Load the io for a container but do not attach
+// Load the io for a container but do not attach.
 //
 // Allows io to be loaded on the task for deletion without
-// starting copy routines
+// starting copy routines. The FIFOSet must not be nil.
 func Load(set *FIFOSet) (IO, error) {
+	if set == nil {
+		return nil, fmt.Errorf("cannot load IO: FIFOSet must not be nil")
+	}
 	return &cio{
 		config:  set.Config,
 		closers: []io.Closer{set},

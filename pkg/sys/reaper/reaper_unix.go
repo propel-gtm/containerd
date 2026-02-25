@@ -91,12 +91,18 @@ type Monitor struct {
 	subscribers map[chan runc.Exit]*subscriber
 }
 
-// Start starts the command and registers the process with the reaper
+// Start starts the command and registers the process with the reaper.
+// The returned channel receives exit events for all processes; the caller
+// should filter by PID to find the relevant exit. If the command fails to
+// start, the subscription is cleaned up automatically.
 func (m *Monitor) Start(c *exec.Cmd) (chan runc.Exit, error) {
+	if c == nil {
+		return nil, fmt.Errorf("command must not be nil")
+	}
 	ec := m.Subscribe()
 	if err := c.Start(); err != nil {
 		m.Unsubscribe(ec)
-		return nil, err
+		return nil, fmt.Errorf("failed to start command %q: %w", c.Path, err)
 	}
 	return ec, nil
 }
@@ -108,10 +114,17 @@ func (m *Monitor) StartLocked(c *exec.Cmd) (chan runc.Exit, error) {
 	return m.Start(c)
 }
 
-// Wait blocks until a process is signal as dead.
+// Wait blocks until a process is signaled as dead.
 // User should rely on the value of the exit status to determine if the
-// command was successful or not.
+// command was successful or not. The exit channel ec must be a valid
+// subscription obtained from Subscribe or Start.
 func (m *Monitor) Wait(c *exec.Cmd, ec chan runc.Exit) (int, error) {
+	if c == nil {
+		return -1, fmt.Errorf("command must not be nil")
+	}
+	if c.Process == nil {
+		return -1, fmt.Errorf("command has not been started")
+	}
 	for e := range ec {
 		if e.Pid == c.Process.Pid {
 			// make sure we flush all IO
@@ -125,8 +138,12 @@ func (m *Monitor) Wait(c *exec.Cmd, ec chan runc.Exit) (int, error) {
 	return -1, ErrNoSuchProcess
 }
 
-// WaitTimeout is used to skip the blocked command and kill the left process.
+// WaitTimeout is used to skip the blocked command and kill the remaining process.
+// If the process does not exit within the given timeout, it is killed with SIGKILL.
 func (m *Monitor) WaitTimeout(c *exec.Cmd, ec chan runc.Exit, timeout time.Duration) (int, error) {
+	if timeout <= 0 {
+		return m.Wait(c, ec)
+	}
 	type exitStatusWrapper struct {
 		status int
 		err    error

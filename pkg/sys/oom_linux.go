@@ -35,7 +35,11 @@ const (
 
 // AdjustOOMScore sets the oom score for the provided pid. If the provided score
 // is out of range (-1000 - 1000), it is clipped to the min/max value.
+// A pid of 0 refers to the calling process.
 func AdjustOOMScore(pid, score int) error {
+	if pid < 0 {
+		return fmt.Errorf("invalid pid %d: must be non-negative", pid)
+	}
 	if score > OOMScoreAdjMax {
 		score = OOMScoreAdjMax
 	} else if score < OOMScoreAdjMin {
@@ -44,7 +48,10 @@ func AdjustOOMScore(pid, score int) error {
 	return SetOOMScore(pid, score)
 }
 
-// SetOOMScore sets the oom score for the provided pid
+// SetOOMScore sets the oom score for the provided pid.
+// The score must be in the range [OOMScoreAdjMin, OOMScoreAdjMax].
+// Returns nil if the process is running in a user namespace and the
+// write is denied due to permission restrictions.
 func SetOOMScore(pid, score int) error {
 	if score > OOMScoreAdjMax || score < OOMScoreAdjMin {
 		return fmt.Errorf("value out of range (%d): OOM score must be between %d and %d", score, OOMScoreAdjMin, OOMScoreAdjMax)
@@ -52,27 +59,34 @@ func SetOOMScore(pid, score int) error {
 	path := fmt.Sprintf("/proc/%d/oom_score_adj", pid)
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open oom_score_adj for pid %d: %w", pid, err)
 	}
 	defer f.Close()
 	if _, err = f.WriteString(strconv.Itoa(score)); err != nil {
 		if os.IsPermission(err) && (!runningPrivileged() || userns.RunningInUserNS()) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("failed to set oom_score_adj for pid %d: %w", pid, err)
 	}
 	return nil
 }
 
 // GetOOMScoreAdj gets the oom score for a process. It returns 0 (zero) if either
-// no oom score is set, or a sore is set to 0.
+// no oom score is set, or a score is set to 0.
 func GetOOMScoreAdj(pid int) (int, error) {
+	if pid < 0 {
+		return 0, fmt.Errorf("invalid pid %d: must be non-negative", pid)
+	}
 	path := fmt.Sprintf("/proc/%d/oom_score_adj", pid)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to read oom_score_adj for pid %d: %w", pid, err)
 	}
-	return strconv.Atoi(strings.TrimSpace(string(data)))
+	score, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse oom_score_adj for pid %d: %w", pid, err)
+	}
+	return score, nil
 }
 
 // runningPrivileged returns true if the effective user ID of the
