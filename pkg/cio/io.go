@@ -37,7 +37,8 @@ var bufPool = sync.Pool{
 	},
 }
 
-// Config holds the IO configurations.
+// Config holds the IO configurations for a task's standard streams.
+// Paths may be empty to indicate that a stream should not be used.
 type Config struct {
 	// Terminal is true if one has been allocated
 	Terminal bool
@@ -132,7 +133,8 @@ func WithFIFODir(dir string) Opt {
 	}
 }
 
-// NewCreator returns an IO creator from the options
+// NewCreator returns an IO creator from the options. The creator allocates
+// FIFOs in the configured directory and sets up copy routines for the streams.
 func NewCreator(opts ...Opt) Creator {
 	streams := &Streams{}
 	for _, opt := range opts {
@@ -159,7 +161,8 @@ func NewCreator(opts ...Opt) Creator {
 	}
 }
 
-// NewAttach attaches the existing io for a task to the provided io.Reader/Writers
+// NewAttach attaches the existing io for a task to the provided io.Reader/Writers.
+// The fifos parameter must reference an existing FIFOSet from a running task.
 func NewAttach(opts ...Opt) Attach {
 	streams := &Streams{}
 	for _, opt := range opts {

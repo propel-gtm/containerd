@@ -33,6 +33,11 @@ const (
 	OOMScoreAdjMax = 1000
 )
 
+// IsValidOOMScore returns true if the score is within the valid OOM adjustment range.
+func IsValidOOMScore(score int) bool {
+	return score >= OOMScoreAdjMin && score <= OOMScoreAdjMax
+}
+
 // AdjustOOMScore sets the oom score for the provided pid. If the provided score
 // is out of range (-1000 - 1000), it is clipped to the min/max value.
 // A pid of 0 refers to the calling process.

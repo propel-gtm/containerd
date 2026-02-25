@@ -32,6 +32,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// ErrReset is returned when a writer has been reset and cannot accept more writes.
 var ErrReset = errors.New("writer has been reset")
 
 var bufPool = sync.Pool{
@@ -45,7 +46,9 @@ type reader interface {
 	Reader() io.Reader
 }
 
-// NewReader returns a io.Reader from a ReaderAt
+// NewReader returns an io.Reader from a ReaderAt. If the ReaderAt implements
+// an internal Reader() method, that is used for efficiency; otherwise a
+// SectionReader is created.
 func NewReader(ra ReaderAt) io.Reader {
 	if rd, ok := ra.(reader); ok {
 		return rd.Reader()
@@ -66,6 +69,8 @@ type nopCloserSectionReader struct {
 func (*nopCloserSectionReader) Close() error { return nil }
 
 // BlobReadSeeker returns a read seeker for the blob from the provider.
+// For inlined blob data (desc.Data), returns a bytes reader; otherwise
+// fetches from the provider and wraps in a section reader.
 func BlobReadSeeker(ctx context.Context, provider Provider, desc ocispec.Descriptor) (io.ReadSeekCloser, error) {
 	if int64(len(desc.Data)) == desc.Size && digest.FromBytes(desc.Data) == desc.Digest {
 		return &nopCloserBytesReader{bytes.NewReader(desc.Data)}, nil
@@ -79,8 +84,10 @@ func BlobReadSeeker(ctx context.Context, provider Provider, desc ocispec.Descrip
 }
 
 // ReadBlob retrieves the entire contents of the blob from the provider.
+// For inlined data (desc.Data matches digest and size), returns it directly.
 //
-// Avoid using this for large blobs, such as layers.
+// Avoid using this for large blobs, such as layers; use ReaderAt or
+// BlobReadSeeker for streaming instead.
 func ReadBlob(ctx context.Context, provider Provider, desc ocispec.Descriptor) ([]byte, error) {
 	if int64(len(desc.Data)) == desc.Size && digest.FromBytes(desc.Data) == desc.Digest {
 		return desc.Data, nil

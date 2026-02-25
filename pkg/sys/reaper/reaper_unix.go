@@ -59,8 +59,9 @@ func (s *subscriber) do(fn func()) {
 	s.Unlock()
 }
 
-// Reap should be called when the process receives an SIGCHLD.  Reap will reap
-// all exited processes and close their wait channels
+// Reap should be called when the process receives SIGCHLD. It reaps all exited
+// child processes and notifies subscribers. Returns nil when no children remain
+// (ECHILD); otherwise returns any wait4 error.
 func Reap() error {
 	now := time.Now()
 	exits, err := reap(false)
@@ -174,7 +175,8 @@ func (m *Monitor) WaitTimeout(c *exec.Cmd, ec chan runc.Exit, timeout time.Durat
 	}
 }
 
-// Subscribe to process exit changes
+// Subscribe creates a new channel for receiving process exit events. The caller
+// must call Unsubscribe when done to avoid leaking the subscription.
 func (m *Monitor) Subscribe() chan runc.Exit {
 	c := make(chan runc.Exit, bufferSize)
 	m.Lock()
@@ -185,7 +187,8 @@ func (m *Monitor) Subscribe() chan runc.Exit {
 	return c
 }
 
-// Unsubscribe to process exit changes
+// Unsubscribe removes the channel from the monitor and closes it. Safe to call
+// multiple times or with an unknown channel; no-op if not subscribed.
 func (m *Monitor) Unsubscribe(c chan runc.Exit) {
 	m.Lock()
 	s, ok := m.subscribers[c]
