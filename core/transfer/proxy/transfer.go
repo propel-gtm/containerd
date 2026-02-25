@@ -41,13 +41,13 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 )
 
+// proxyTransferrer implements transfer.Transferrer by proxying to gRPC or TTRPC.
 type proxyTransferrer struct {
 	client        transferapi.TTRPCTransferService
 	streamCreator streaming.StreamCreator
 }
 
-// NewTransferrer returns a new transferrer which can communicate over a GRPC
-// or TTRPC connection using the containerd transfer API
+// NewTransferrer creates a Transferrer that proxies over gRPC or TTRPC.
 func NewTransferrer(client any, sc streaming.StreamCreator) transfer.Transferrer {
 	switch c := client.(type) {
 	case transferapi.TransferClient:
@@ -77,14 +77,17 @@ func NewTransferrer(client any, sc streaming.StreamCreator) transfer.Transferrer
 	}
 }
 
+// convertClient adapts gRPC TransferClient to the TTRPC interface.
 type convertClient struct {
 	transferapi.TransferClient
 }
 
+// Transfer forwards the request to the gRPC TransferClient.
 func (c convertClient) Transfer(ctx context.Context, r *transferapi.TransferRequest) (*emptypb.Empty, error) {
 	return c.TransferClient.Transfer(ctx, r)
 }
 
+// Transfer performs a transfer from src to dst using the configured options.
 func (p *proxyTransferrer) Transfer(ctx context.Context, src interface{}, dst interface{}, opts ...transfer.Opt) error {
 	o := &transfer.Config{}
 	for _, opt := range opts {

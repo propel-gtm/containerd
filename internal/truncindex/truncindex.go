@@ -51,15 +51,14 @@ func (e ErrAmbiguousPrefix) Error() string {
 	return fmt.Sprintf("Multiple IDs found with provided prefix: %s", e.prefix)
 }
 
-// TruncIndex allows the retrieval of string identifiers by any of their unique prefixes.
-// This is used to retrieve image and container IDs by more convenient shorthand prefixes.
+// TruncIndex maps string IDs to allow lookup by unique prefix (e.g. container IDs).
 type TruncIndex struct {
 	sync.RWMutex
 	trie *patricia.Trie
 	ids  map[string]struct{}
 }
 
-// NewTruncIndex creates a new TruncIndex and initializes with a list of IDs.
+// NewTruncIndex creates a TruncIndex and adds the given IDs.
 func NewTruncIndex(ids []string) (idx *TruncIndex) {
 	idx = &TruncIndex{
 		ids: make(map[string]struct{}),
@@ -74,6 +73,7 @@ func NewTruncIndex(ids []string) (idx *TruncIndex) {
 	return
 }
 
+// addID adds an ID to the index. Caller must hold lock.
 func (idx *TruncIndex) addID(id string) error {
 	if strings.Contains(id, " ") {
 		return ErrIllegalChar
@@ -91,15 +91,14 @@ func (idx *TruncIndex) addID(id string) error {
 	return nil
 }
 
-// Add adds a new ID to the TruncIndex.
+// Add inserts an ID. Returns error if ID contains space or already exists.
 func (idx *TruncIndex) Add(id string) error {
 	idx.Lock()
 	defer idx.Unlock()
 	return idx.addID(id)
 }
 
-// Delete removes an ID from the TruncIndex. If there are multiple IDs
-// with the given prefix, an error is thrown.
+// Delete removes the ID. Returns error if not found.
 func (idx *TruncIndex) Delete(id string) error {
 	if _, exists := idx.ids[id]; !exists || id == "" {
 		return fmt.Errorf("no such id: '%s'", id)
@@ -111,8 +110,7 @@ func (idx *TruncIndex) Delete(id string) error {
 	return nil
 }
 
-// Get retrieves an ID from the TruncIndex. If there are multiple IDs
-// with the given prefix, an error is thrown.
+// Get returns the full ID matching the prefix. ErrAmbiguousPrefix if multiple match.
 func (idx *TruncIndex) Get(s string) (string, error) {
 	if s == "" {
 		return "", ErrEmptyPrefix

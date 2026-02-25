@@ -35,6 +35,7 @@ import (
 const maxRead = 32 * 1024
 const windowSize = 2 * maxRead
 
+// bufPool provides buffers for stream read/write operations.
 var bufPool = &sync.Pool{
 	New: func() interface{} {
 		buffer := make([]byte, maxRead)
@@ -42,6 +43,7 @@ var bufPool = &sync.Pool{
 	},
 }
 
+// SendStream copies data from r to the stream with flow control via WindowUpdate.
 func SendStream(ctx context.Context, r io.Reader, stream streaming.Stream) {
 	window := make(chan int32)
 	go func() {
@@ -138,6 +140,7 @@ func SendStream(ctx context.Context, r io.Reader, stream streaming.Stream) {
 	}()
 }
 
+// ReceiveStream returns a Reader that receives data from the stream.
 func ReceiveStream(ctx context.Context, stream streaming.Stream) io.Reader {
 	r, w := io.Pipe()
 	go func() {
@@ -202,6 +205,7 @@ func ReceiveStream(ctx context.Context, stream streaming.Stream) io.Reader {
 	return r
 }
 
+// GenerateID creates a unique ID with the given prefix.
 func GenerateID(prefix string) string {
 	t := time.Now()
 	var b [3]byte

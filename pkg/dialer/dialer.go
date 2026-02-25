@@ -23,19 +23,31 @@ import (
 	"time"
 )
 
+// dialResult holds the result of an async dial attempt for use in the
+// timeout dialer's goroutine communication.
 type dialResult struct {
 	c   net.Conn
 	err error
 }
 
-// ContextDialer returns a GRPC net.Conn connected to the provided address
+// ContextDialer returns a net.Conn to the address. Uses context deadline as
+// dial timeout if set. Address may be a Unix socket path or TCP address.
 func ContextDialer(ctx context.Context, address string) (net.Conn, error) {
-	if deadline, ok := context.Background().Deadline(); ok {
+	if address == "" {
+		return nil, fmt.Errorf("dial address must not be empty")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if deadline, ok := ctx.Deadline(); ok {
 		return timeoutDialer(address, time.Until(deadline))
 	}
 	return timeoutDialer(address, 0)
 }
 
+// timeoutDialer dials the given address with an optional timeout. When timeout
+// is 0, no deadline is applied. If the target socket does not exist yet
+// (ENOENT), the dialer retries with a short backoff until the timeout expires.
 func timeoutDialer(address string, timeout time.Duration) (net.Conn, error) {
 	var (
 		stopC = make(chan struct{})
@@ -69,6 +81,6 @@ func timeoutDialer(address string, timeout time.Duration) (net.Conn, error) {
 				dr.c.Close()
 			}
 		}()
-		return nil, fmt.Errorf("dial %s: timeout", address)
+		return nil, fmt.Errorf("dial %s: timeout after %v", address, timeout)
 	}
 }

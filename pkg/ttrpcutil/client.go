@@ -30,9 +30,10 @@ import (
 
 const ttrpcDialTimeout = 5 * time.Second
 
+// ttrpcConnector creates a new TTRPC client connection.
 type ttrpcConnector func() (*ttrpc.Client, error)
 
-// Client is the client to interact with TTRPC part of containerd server (plugins, events)
+// Client manages a TTRPC connection to the containerd daemon (plugins, events).
 type Client struct {
 	mu        sync.Mutex
 	connector ttrpcConnector
@@ -40,7 +41,8 @@ type Client struct {
 	closed    bool
 }
 
-// NewClient returns a new containerd TTRPC client that is connected to the containerd instance provided by address
+// NewClient creates a TTRPC client for the given address. Connection is
+// established lazily on first use. Uses ttrpcDialTimeout for dial.
 func NewClient(address string, opts ...ttrpc.ClientOpts) (*Client, error) {
 	connector := func() (*ttrpc.Client, error) {
 		ctx, _ := context.WithTimeout(context.Background(), ttrpcDialTimeout)
@@ -58,7 +60,7 @@ func NewClient(address string, opts ...ttrpc.ClientOpts) (*Client, error) {
 	}, nil
 }
 
-// Reconnect re-establishes the TTRPC connection to the containerd daemon
+// Reconnect closes the current connection and establishes a new one.
 func (c *Client) Reconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -86,7 +88,7 @@ func (c *Client) Reconnect() error {
 	return nil
 }
 
-// EventsService creates an EventsService client
+// EventsService returns the TTRPC events service client.
 func (c *Client) EventsService() (v1.TTRPCEventsService, error) {
 	client, err := c.Client()
 	if err != nil {
@@ -95,7 +97,7 @@ func (c *Client) EventsService() (v1.TTRPCEventsService, error) {
 	return v1.NewTTRPCEventsClient(client), nil
 }
 
-// Client returns the underlying TTRPC client object
+// Client returns the underlying TTRPC client, connecting if needed.
 func (c *Client) Client() (*ttrpc.Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -109,7 +111,7 @@ func (c *Client) Client() (*ttrpc.Client, error) {
 	return c.client, nil
 }
 
-// Close closes the clients TTRPC connection to containerd
+// Close closes the TTRPC connection. Safe to call multiple times.
 func (c *Client) Close() error {
 	c.closed = true
 	if c.client != nil {

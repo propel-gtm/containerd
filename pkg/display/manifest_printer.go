@@ -60,18 +60,22 @@ var LineTreeFormat = TreeFormat{
 	Spacer:     "    ",
 }
 
+// ImageTreePrinter prints image manifests in tree format.
 type ImageTreePrinter struct {
 	verbose bool
 	w       io.Writer
 	format  TreeFormat
 }
 
+// PrintOpt configures ImageTreePrinter behavior.
 type PrintOpt func(*ImageTreePrinter)
 
+// Verbose enables verbose output (e.g. layer digests).
 func Verbose(p *ImageTreePrinter) {
 	p.verbose = true
 }
 
+// WithWriter sets the output writer. Defaults to os.Stdout.
 func WithWriter(w io.Writer) PrintOpt {
 	return func(p *ImageTreePrinter) {
 		p.w = w

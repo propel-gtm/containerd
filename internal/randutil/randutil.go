@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-// Package randutil provides utilities for [cyrpto/rand].
+// Package randutil provides crypto/rand-based random utilities.
 package randutil
 
 import (
@@ -23,18 +23,18 @@ import (
 	"math/big"
 )
 
-// Int63n is similar to [math/rand.Int63n] but uses [crypto/rand.Reader] under the hood.
+// Int63n returns a random int64 in [0, n) using crypto/rand.
 func Int63n(n int64) int64 {
 	b, _ := rand.Int(rand.Reader, big.NewInt(n))
 	return b.Int64()
 }
 
-// Int63 is similar to [math/rand.Int63] but uses [crypto/rand.Reader] under the hood.
+// Int63 returns a random non-negative int64 using crypto/rand.
 func Int63() int64 {
 	return Int63n(math.MaxInt64)
 }
 
-// Intn is similar to [math/rand.Intn] but uses [crypto/rand.Reader] under the hood.
+// Intn returns a random int in [0, n) using crypto/rand.
 func Intn(n int) int {
 	return int(Int63n(int64(n)))
 }
