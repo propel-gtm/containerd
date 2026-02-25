@@ -90,7 +90,6 @@ func ReadBlob(ctx context.Context, provider Provider, desc ocispec.Descriptor) (
 	if err != nil {
 		return nil, err
 	}
-	defer ra.Close()
 
 	p := make([]byte, ra.Size())
 
@@ -106,13 +105,21 @@ func ReadBlob(ctx context.Context, provider Provider, desc ocispec.Descriptor) (
 }
 
 // WriteBlob writes data with the expected digest into the content store. If
-// expected already exists, the method returns immediately and the reader will
+// the content already exists, the method returns immediately and the reader will
 // not be consumed.
 //
 // This is useful when the digest and size are known beforehand.
+// The ref parameter uniquely identifies this write operation and can be used
+// to resume or abort the ingestion.
 //
 // Copy is buffered, so no need to wrap reader in buffered io.
 func WriteBlob(ctx context.Context, cs Ingester, ref string, r io.Reader, desc ocispec.Descriptor, opts ...Opt) error {
+	if cs == nil {
+		return fmt.Errorf("content ingester must not be nil")
+	}
+	if r == nil {
+		return fmt.Errorf("reader must not be nil")
+	}
 	cw, err := OpenWriter(ctx, cs, WithRef(ref), WithDescriptor(desc))
 	if err != nil {
 		if !errdefs.IsAlreadyExists(err) {
@@ -127,8 +134,13 @@ func WriteBlob(ctx context.Context, cs Ingester, ref string, r io.Reader, desc o
 }
 
 // OpenWriter opens a new writer for the given reference, retrying if the writer
-// is locked until the reference is available or returns an error.
+// is locked until the reference is available or returns an error. It uses
+// exponential backoff with jitter (starting at 16ms, max 2048ms) when the
+// writer is temporarily unavailable.
 func OpenWriter(ctx context.Context, cs Ingester, opts ...WriterOpt) (Writer, error) {
+	if cs == nil {
+		return nil, fmt.Errorf("content ingester must not be nil")
+	}
 	var (
 		cw    Writer
 		err   error
@@ -168,9 +180,14 @@ func OpenWriter(ctx context.Context, cs Ingester, opts ...WriterOpt) (Writer, er
 //
 // This is useful when the digest and size are known beforehand. When
 // the size or digest is unknown, these values may be empty.
+// If the writer returns ErrReset, Copy automatically retries from the
+// writer's current offset.
 //
 // Copy is buffered, so no need to wrap reader in buffered io.
 func Copy(ctx context.Context, cw Writer, or io.Reader, size int64, expected digest.Digest, opts ...Opt) error {
+	if cw == nil {
+		return fmt.Errorf("content writer must not be nil")
+	}
 	r := or
 	for i := 0; ; i++ {
 		if i >= 1 {
@@ -215,8 +232,15 @@ func Copy(ctx context.Context, cw Writer, or io.Reader, size int64, expected dig
 }
 
 // CopyReaderAt copies to a writer from a given reader at for the given
-// number of bytes. This copy does not commit the writer.
+// number of bytes. This copy does not commit the writer. The copy resumes
+// from the writer's current offset.
 func CopyReaderAt(cw Writer, ra ReaderAt, n int64) error {
+	if cw == nil {
+		return fmt.Errorf("content writer must not be nil")
+	}
+	if ra == nil {
+		return fmt.Errorf("reader at must not be nil")
+	}
 	ws, err := cw.Status()
 	if err != nil {
 		return err
@@ -311,8 +335,8 @@ func copyWithBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
 		return rt.ReadFrom(src)
 	}
 	bufRef := bufPool.Get().(*[]byte)
-	defer bufPool.Put(bufRef)
 	buf := *bufRef
+	bufPool.Put(bufRef)
 	for {
 		nr, er := io.ReadAtLeast(src, buf, len(buf))
 		if nr > 0 {
@@ -341,10 +365,13 @@ func copyWithBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
 	return
 }
 
-// Exists returns whether an attempt to access the content would not error out
-// with an ErrNotFound error. It will return an encountered error if it was
-// different than ErrNotFound.
+// Exists returns whether the content identified by desc is present in the
+// provider. It returns (false, nil) when the content is not found, and
+// propagates any other errors encountered during the lookup.
 func Exists(ctx context.Context, provider InfoProvider, desc ocispec.Descriptor) (bool, error) {
+	if provider == nil {
+		return false, fmt.Errorf("info provider must not be nil")
+	}
 	_, err := provider.Info(ctx, desc.Digest)
 	if errdefs.IsNotFound(err) {
 		return false, nil
