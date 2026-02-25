@@ -98,7 +98,7 @@ func (p *grpcEventsProxy) Forward(ctx context.Context, envelope *events.Envelope
 func (p *grpcEventsProxy) Subscribe(ctx context.Context, filters ...string) (ch <-chan *events.Envelope, errs <-chan error) {
 	var (
 		evq  = make(chan *events.Envelope)
-		errq = make(chan error, 1)
+		errq = make(chan error)
 	)
 
 	errs = errq
@@ -179,7 +179,7 @@ func (p *ttrpcEventsProxy) Forward(ctx context.Context, envelope *events.Envelop
 func (p *ttrpcEventsProxy) Subscribe(ctx context.Context, filters ...string) (ch <-chan *events.Envelope, errs <-chan error) {
 	var (
 		evq  = make(chan *events.Envelope)
-		errq = make(chan error, 1)
+		errq = make(chan error)
 	)
 
 	errs = errq
