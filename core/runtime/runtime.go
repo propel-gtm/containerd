@@ -24,7 +24,8 @@ import (
 	"github.com/containerd/typeurl/v2"
 )
 
-// IO holds process IO information
+// IO holds process IO configuration. Paths reference FIFOs or stream URIs
+// for stdin, stdout, and stderr. Terminal indicates if a TTY is allocated.
 type IO struct {
 	Stdin    string
 	Stdout   string
@@ -32,7 +33,8 @@ type IO struct {
 	Terminal bool
 }
 
-// CreateOpts contains task creation data
+// CreateOpts contains the parameters for creating a new task. Spec, Rootfs,
+// and IO are required; other fields are optional depending on the use case.
 type CreateOpts struct {
 	// Spec is the OCI runtime spec
 	Spec typeurl.Any
@@ -59,7 +61,7 @@ type CreateOpts struct {
 	Version uint32
 }
 
-// Exit information for a process
+// Exit holds the exit information for a process: PID, exit status, and timestamp.
 type Exit struct {
 	Pid       uint32
 	Status    uint32

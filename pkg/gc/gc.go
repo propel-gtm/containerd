@@ -23,11 +23,13 @@ package gc
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
 
-// ResourceType represents type of resource at a node
+// ResourceType represents the type of resource at a node in the GC graph.
+// Valid values are 0 through ResourceMax; upper bits are stripped during mark.
 type ResourceType uint8
 
 // ResourceMax represents the max resource.
@@ -35,17 +37,16 @@ type ResourceType uint8
 // to be used by the caller reference function.
 const ResourceMax = ResourceType(0x1F)
 
-// Node presents a resource which has a type, namespace, and key.
-// Nodes are the fundamental unit of the garbage collection graph;
-// each node can be used to lookup other referenced nodes via the
-// refs function passed to Tricolor or ConcurrentMark.
+// Node represents a resource in the garbage collection graph. Each node has a
+// type, namespace, and key. The refs function passed to Tricolor or ConcurrentMark
+// is used to discover nodes referenced by a given node.
 type Node struct {
 	Type      ResourceType
 	Namespace string
 	Key       string
 }
 
-// Stats about a garbage collection run
+// Stats provides metrics about a garbage collection run, such as elapsed time.
 type Stats interface {
 	Elapsed() time.Duration
 }
@@ -98,15 +99,19 @@ func Tricolor(roots []Node, refs func(ref Node) ([]Node, error)) (map[Node]struc
 	return reachable, nil
 }
 
-// ConcurrentMark implements simple, concurrent GC. All the roots are scanned
-// and the complete set of references is formed by calling the refs function
-// for each seen object. This function returns a map of all object reachable
-// from a root.
+// NodeKey returns a string representation of the node for logging or debugging.
+func NodeKey(n Node) string {
+	return fmt.Sprintf("%s/%s", n.Namespace, n.Key)
+}
+
+// ConcurrentMark implements concurrent tri-color marking. Roots are read from
+// the root channel, and the refs function is called for each seen node to
+// discover references. Returns a map of all nodes reachable from the roots.
 //
-// Correct usage requires that the caller not allow the arguments to change
-// until the result is used to delete objects in the system.
+// Correct usage requires that the caller not modify the graph (roots, refs
+// results) until the returned reachable set is used for deletion.
 //
-// It will allocate memory proportional to the size of the reachable set.
+// Memory usage is proportional to the size of the reachable set.
 func ConcurrentMark(ctx context.Context, root <-chan Node, refs func(context.Context, Node, func(Node)) error) (map[Node]struct{}, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	_ = cancel
@@ -176,10 +181,10 @@ func ConcurrentMark(ctx context.Context, root <-chan Node, refs func(context.Con
 	return seen, nil
 }
 
-// Sweep removes all nodes returned through the slice which are not in
-// the reachable set by calling the provided remove function.
-// The remove function is called once for each unreachable node. If remove
-// returns an error, sweeping stops and the error is propagated to the caller.
+// Sweep removes all nodes in the all slice that are not in the reachable set,
+// by calling the provided remove function for each unreachable node. If remove
+// returns an error, sweeping stops and the error is propagated. A nil reachable
+// map is treated as empty (all nodes will be swept).
 func Sweep(reachable map[Node]struct{}, all []Node, remove func(Node) error) error {
 	if reachable == nil {
 		reachable = make(map[Node]struct{})

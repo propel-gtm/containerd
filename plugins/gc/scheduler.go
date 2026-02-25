@@ -31,7 +31,8 @@ import (
 	"github.com/containerd/plugin/registry"
 )
 
-// config configures the garbage collection policies.
+// config configures the garbage collection scheduler policies. All thresholds
+// and delays can be set via TOML configuration in the containerd config file.
 type config struct {
 	// PauseThreshold represents the maximum amount of time garbage
 	// collection should be scheduled based on the average pause time.
@@ -124,8 +125,9 @@ func init() {
 	})
 }
 
-// mutationEvent represents a database mutation or trigger event that may
-// require garbage collection scheduling.
+// mutationEvent represents a database mutation or manual trigger that may
+// require scheduling a garbage collection run. The dirty flag indicates
+// whether the mutation involved deletions that may free resources.
 type mutationEvent struct {
 	ts       time.Time
 	mutation bool
@@ -200,12 +202,16 @@ func newScheduler(c collector, cfg *config) *gcScheduler {
 	return s
 }
 
-// ScheduleAndWait triggers a garbage collection and waits for it to complete,
-// returning the collection statistics.
+// ScheduleAndWait triggers a garbage collection run and blocks until it completes.
+// Returns the collection statistics or an error if the context is cancelled
+// or collection fails.
 func (s *gcScheduler) ScheduleAndWait(ctx context.Context) (gc.Stats, error) {
 	return s.wait(ctx, true)
 }
 
+// wait registers a waiter and optionally triggers a GC run. If trigger is true,
+// a mutation event is sent to schedule collection. Returns when GC completes
+// or the context is cancelled.
 func (s *gcScheduler) wait(ctx context.Context, trigger bool) (gc.Stats, error) {
 	if ctx == nil {
 		return gc.Stats(nil), errors.New("context must not be nil")
@@ -253,11 +259,15 @@ func (s *gcScheduler) mutationCallback(dirty bool) {
 	}()
 }
 
+// schedule returns a channel that fires after duration d and the scheduled
+// time. Used by the GC scheduler to determine when to run the next collection.
 func schedule(d time.Duration) (<-chan time.Time, *time.Time) {
 	next := time.Now().Add(d)
 	return time.After(d), &next
 }
 
+// run is the main loop for the GC scheduler. It processes mutation events,
+// schedules collections based on thresholds, and notifies waiters when complete.
 func (s *gcScheduler) run(ctx context.Context) {
 	const minGCTime = float64(5 * time.Millisecond)
 	var (
