@@ -58,12 +58,13 @@ func ParseSourceDateEpoch(sourceDateEpoch string) (*time.Time, error) {
 	return &t, nil
 }
 
-// SetSourceDateEpoch sets the SOURCE_DATE_EPOCH env var.
+// SetSourceDateEpoch sets the SOURCE_DATE_EPOCH env var to the Unix timestamp
+// of the given time. Used for reproducible builds.
 func SetSourceDateEpoch(tm time.Time) {
 	_ = os.Setenv(SourceDateEpochEnv, fmt.Sprintf("%d", tm.Unix()))
 }
 
-// UnsetSourceDateEpoch unsets the SOURCE_DATE_EPOCH env var.
+// UnsetSourceDateEpoch removes the SOURCE_DATE_EPOCH env var from the process.
 func UnsetSourceDateEpoch() {
 	_ = os.Unsetenv(SourceDateEpochEnv)
 }

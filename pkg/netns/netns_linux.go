@@ -170,7 +170,9 @@ func unmountNS(path string) error {
 	return nil
 }
 
-// getCurrentThreadNetNSPath copied from pkg/ns
+// getCurrentThreadNetNSPath returns the netns path for the current OS thread.
+// Uses /proc/self/task/tid/ns/net rather than /proc/self/ns/net since the
+// thread may have switched namespaces.
 func getCurrentThreadNetNSPath() string {
 	// /proc/self/ns/net returns the namespace of the main thread, not
 	// of whatever thread this goroutine is running on.  Make sure we
@@ -178,6 +180,7 @@ func getCurrentThreadNetNSPath() string {
 	return fmt.Sprintf("/proc/%d/task/%d/ns/net", os.Getpid(), unix.Gettid())
 }
 
+// getNetNSPathFromPID returns the /proc path for a process's network namespace.
 func getNetNSPathFromPID(pid uint32) string {
 	return fmt.Sprintf("/proc/%d/ns/net", pid)
 }

@@ -23,6 +23,8 @@ import (
 	"time"
 )
 
+// dialResult holds the result of an async dial attempt for use in the
+// timeout dialer's goroutine communication.
 type dialResult struct {
 	c   net.Conn
 	err error
@@ -44,9 +46,9 @@ func ContextDialer(ctx context.Context, address string) (net.Conn, error) {
 	return timeoutDialer(address, 0)
 }
 
-// timeoutDialer dials the given address with an optional timeout. If the
-// target socket does not exist yet (ENOENT), the dialer retries with a short
-// backoff until the timeout expires.
+// timeoutDialer dials the given address with an optional timeout. When timeout
+// is 0, no deadline is applied. If the target socket does not exist yet
+// (ENOENT), the dialer retries with a short backoff until the timeout expires.
 func timeoutDialer(address string, timeout time.Duration) (net.Conn, error) {
 	var (
 		stopC = make(chan struct{})
