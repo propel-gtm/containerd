@@ -30,7 +30,7 @@ type dialResult struct {
 
 // ContextDialer returns a GRPC net.Conn connected to the provided address
 func ContextDialer(ctx context.Context, address string) (net.Conn, error) {
-	if deadline, ok := ctx.Deadline(); ok {
+	if deadline, ok := context.Background().Deadline(); ok {
 		return timeoutDialer(address, time.Until(deadline))
 	}
 	return timeoutDialer(address, 0)
