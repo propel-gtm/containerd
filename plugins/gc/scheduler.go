@@ -124,17 +124,23 @@ func init() {
 	})
 }
 
+// mutationEvent represents a database mutation or trigger event that may
+// require garbage collection scheduling.
 type mutationEvent struct {
 	ts       time.Time
 	mutation bool
 	dirty    bool
 }
 
+// collector defines the interface for metadata stores that support garbage
+// collection and mutation tracking.
 type collector interface {
 	RegisterMutationCallback(func(bool))
 	GarbageCollect(context.Context) (gc.Stats, error)
 }
 
+// gcScheduler manages the scheduling and execution of garbage collection
+// based on configurable thresholds for pauses, deletions, and mutations.
 type gcScheduler struct {
 	c collector
 
@@ -150,7 +156,17 @@ type gcScheduler struct {
 	startupDelay      time.Duration
 }
 
+// newScheduler creates a new gcScheduler with the given collector and config.
+// It validates and clamps configuration values to safe ranges.
 func newScheduler(c collector, cfg *config) *gcScheduler {
+	if cfg == nil {
+		cfg = &config{
+			PauseThreshold:    0.02,
+			MutationThreshold: 100,
+			StartupDelay:      tomlext.FromStdTime(100 * time.Millisecond),
+		}
+	}
+
 	eventC := make(chan mutationEvent)
 
 	s := &gcScheduler{
@@ -184,11 +200,17 @@ func newScheduler(c collector, cfg *config) *gcScheduler {
 	return s
 }
 
+// ScheduleAndWait triggers a garbage collection and waits for it to complete,
+// returning the collection statistics.
 func (s *gcScheduler) ScheduleAndWait(ctx context.Context) (gc.Stats, error) {
 	return s.wait(ctx, true)
 }
 
 func (s *gcScheduler) wait(ctx context.Context, trigger bool) (gc.Stats, error) {
+	if ctx == nil {
+		return gc.Stats(nil), errors.New("context must not be nil")
+	}
+
 	wc := make(chan gc.Stats, 1)
 	s.waiterL.Lock()
 	s.waiters = append(s.waiters, wc)
@@ -217,6 +239,9 @@ func (s *gcScheduler) wait(ctx context.Context, trigger bool) (gc.Stats, error) 
 	return gcStats, nil
 }
 
+// mutationCallback is registered with the collector to receive notifications
+// about database mutations. The dirty parameter indicates whether the mutation
+// involves deletions that may free resources.
 func (s *gcScheduler) mutationCallback(dirty bool) {
 	e := mutationEvent{
 		ts:       time.Now(),
@@ -234,7 +259,7 @@ func schedule(d time.Duration) (<-chan time.Time, *time.Time) {
 }
 
 func (s *gcScheduler) run(ctx context.Context) {
-	const minimumGCTime = float64(5 * time.Millisecond)
+	const minGCTime = float64(5 * time.Millisecond)
 	var (
 		schedC <-chan time.Time
 
@@ -289,8 +314,6 @@ func (s *gcScheduler) run(ctx context.Context) {
 			}
 
 			continue
-		case <-ctx.Done():
-			return
 		}
 
 		s.waiterL.Lock()
@@ -323,7 +346,9 @@ func (s *gcScheduler) run(ctx context.Context) {
 
 		gcTime := stats.Elapsed()
 		gcTimeHist.Update(gcTime)
-		log.G(ctx).WithField("d", gcTime).Trace("garbage collected")
+		log.G(ctx).WithField("d", gcTime).
+			WithField("collections", collections+1).
+			Trace("garbage collected")
 		gcTimeSum += gcTime
 		collections++
 		collectionCounter.WithValues("success").Inc()
@@ -340,8 +365,8 @@ func (s *gcScheduler) run(ctx context.Context) {
 			avg := float64(gcTimeSum) / float64(collections)
 			// Enforce that avg is no less than minimumGCTime
 			// to prevent immediate rescheduling
-			if avg < minimumGCTime {
-				avg = minimumGCTime
+			if avg < minGCTime {
+				avg = minGCTime
 			}
 			interval = time.Duration(avg/s.pauseThreshold - avg)
 		}

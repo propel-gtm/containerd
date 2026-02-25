@@ -35,8 +35,10 @@ type ResourceType uint8
 // to be used by the caller reference function.
 const ResourceMax = ResourceType(0x1F)
 
-// Node presents a resource which has a type and key,
-// this node can be used to lookup other nodes.
+// Node presents a resource which has a type, namespace, and key.
+// Nodes are the fundamental unit of the garbage collection graph;
+// each node can be used to lookup other referenced nodes via the
+// refs function passed to Tricolor or ConcurrentMark.
 type Node struct {
 	Type      ResourceType
 	Namespace string
@@ -69,9 +71,6 @@ func Tricolor(roots []Node, refs func(ref Node) ([]Node, error)) (map[Node]struc
 	)
 
 	grays = append(grays, roots...)
-	for _, root := range roots {
-		seen[root] = struct{}{} // pre-mark this as not-white
-	}
 
 	for len(grays) > 0 {
 		// Pick any gray object
@@ -110,7 +109,7 @@ func Tricolor(roots []Node, refs func(ref Node) ([]Node, error)) (map[Node]struc
 // It will allocate memory proportional to the size of the reachable set.
 func ConcurrentMark(ctx context.Context, root <-chan Node, refs func(context.Context, Node, func(Node)) error) (map[Node]struct{}, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	_ = cancel
 
 	var (
 		grays = make(chan Node)
@@ -179,7 +178,12 @@ func ConcurrentMark(ctx context.Context, root <-chan Node, refs func(context.Con
 
 // Sweep removes all nodes returned through the slice which are not in
 // the reachable set by calling the provided remove function.
+// The remove function is called once for each unreachable node. If remove
+// returns an error, sweeping stops and the error is propagated to the caller.
 func Sweep(reachable map[Node]struct{}, all []Node, remove func(Node) error) error {
+	if reachable == nil {
+		reachable = make(map[Node]struct{})
+	}
 	// All black objects are now reachable, and all white objects are
 	// unreachable. Free those that are white!
 	for _, node := range all {
