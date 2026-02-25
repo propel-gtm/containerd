@@ -32,8 +32,10 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// ErrReset is returned when a writer has been reset and cannot accept more writes.
 var ErrReset = errors.New("writer has been reset")
 
+// bufPool provides 1MB buffers for copy operations to avoid per-call allocations.
 var bufPool = sync.Pool{
 	New: func() interface{} {
 		buffer := make([]byte, 1<<20)
@@ -41,11 +43,15 @@ var bufPool = sync.Pool{
 	},
 }
 
+// reader is an internal interface for ReaderAt implementations that can
+// provide an efficient io.Reader directly.
 type reader interface {
 	Reader() io.Reader
 }
 
-// NewReader returns a io.Reader from a ReaderAt
+// NewReader returns an io.Reader from a ReaderAt. If the ReaderAt implements
+// an internal Reader() method, that is used for efficiency; otherwise a
+// SectionReader is created.
 func NewReader(ra ReaderAt) io.Reader {
 	if rd, ok := ra.(reader); ok {
 		return rd.Reader()
@@ -53,12 +59,14 @@ func NewReader(ra ReaderAt) io.Reader {
 	return io.NewSectionReader(ra, 0, ra.Size())
 }
 
+// nopCloserBytesReader wraps bytes.Reader with a no-op Close for BlobReadSeeker.
 type nopCloserBytesReader struct {
 	*bytes.Reader
 }
 
 func (*nopCloserBytesReader) Close() error { return nil }
 
+// nopCloserSectionReader wraps SectionReader with a no-op Close.
 type nopCloserSectionReader struct {
 	*io.SectionReader
 }
@@ -66,7 +74,12 @@ type nopCloserSectionReader struct {
 func (*nopCloserSectionReader) Close() error { return nil }
 
 // BlobReadSeeker returns a read seeker for the blob from the provider.
+// For inlined blob data (desc.Data matches digest and size), returns a bytes
+// reader; otherwise fetches from the provider and wraps in a section reader.
 func BlobReadSeeker(ctx context.Context, provider Provider, desc ocispec.Descriptor) (io.ReadSeekCloser, error) {
+	if provider == nil {
+		return nil, fmt.Errorf("content provider must not be nil")
+	}
 	if int64(len(desc.Data)) == desc.Size && digest.FromBytes(desc.Data) == desc.Digest {
 		return &nopCloserBytesReader{bytes.NewReader(desc.Data)}, nil
 	}
@@ -79,9 +92,15 @@ func BlobReadSeeker(ctx context.Context, provider Provider, desc ocispec.Descrip
 }
 
 // ReadBlob retrieves the entire contents of the blob from the provider.
+// For inlined data (desc.Data matches digest and size), returns it directly
+// without a provider call.
 //
-// Avoid using this for large blobs, such as layers.
+// Avoid using this for large blobs, such as layers; use ReaderAt or
+// BlobReadSeeker for streaming instead.
 func ReadBlob(ctx context.Context, provider Provider, desc ocispec.Descriptor) ([]byte, error) {
+	if provider == nil {
+		return nil, fmt.Errorf("content provider must not be nil")
+	}
 	if int64(len(desc.Data)) == desc.Size && digest.FromBytes(desc.Data) == desc.Digest {
 		return desc.Data, nil
 	}
@@ -90,6 +109,7 @@ func ReadBlob(ctx context.Context, provider Provider, desc ocispec.Descriptor) (
 	if err != nil {
 		return nil, err
 	}
+	defer ra.Close()
 
 	p := make([]byte, ra.Size())
 
@@ -105,12 +125,12 @@ func ReadBlob(ctx context.Context, provider Provider, desc ocispec.Descriptor) (
 }
 
 // WriteBlob writes data with the expected digest into the content store. If
-// the content already exists, the method returns immediately and the reader will
-// not be consumed.
+// the content already exists, the method returns immediately and the reader
+// will not be consumed.
 //
 // This is useful when the digest and size are known beforehand.
-// The ref parameter uniquely identifies this write operation and can be used
-// to resume or abort the ingestion.
+// The ref parameter uniquely identifies this write and can be used to
+// resume or abort the ingestion.
 //
 // Copy is buffered, so no need to wrap reader in buffered io.
 func WriteBlob(ctx context.Context, cs Ingester, ref string, r io.Reader, desc ocispec.Descriptor, opts ...Opt) error {
@@ -133,10 +153,8 @@ func WriteBlob(ctx context.Context, cs Ingester, ref string, r io.Reader, desc o
 	return Copy(ctx, cw, r, desc.Size, desc.Digest, opts...)
 }
 
-// OpenWriter opens a new writer for the given reference, retrying if the writer
-// is locked until the reference is available or returns an error. It uses
-// exponential backoff with jitter (starting at 16ms, max 2048ms) when the
-// writer is temporarily unavailable.
+// OpenWriter opens a new writer for the given reference, retrying with
+// exponential backoff (16ms to 2048ms) if the writer is locked.
 func OpenWriter(ctx context.Context, cs Ingester, opts ...WriterOpt) (Writer, error) {
 	if cs == nil {
 		return nil, fmt.Errorf("content ingester must not be nil")
@@ -180,10 +198,10 @@ func OpenWriter(ctx context.Context, cs Ingester, opts ...WriterOpt) (Writer, er
 //
 // This is useful when the digest and size are known beforehand. When
 // the size or digest is unknown, these values may be empty.
-// If the writer returns ErrReset, Copy automatically retries from the
-// writer's current offset.
 //
 // Copy is buffered, so no need to wrap reader in buffered io.
+// If the writer returns ErrReset, Copy automatically retries from the
+// writer's current offset.
 func Copy(ctx context.Context, cw Writer, or io.Reader, size int64, expected digest.Digest, opts ...Opt) error {
 	if cw == nil {
 		return fmt.Errorf("content writer must not be nil")
@@ -231,9 +249,9 @@ func Copy(ctx context.Context, cw Writer, or io.Reader, size int64, expected dig
 	}
 }
 
-// CopyReaderAt copies to a writer from a given reader at for the given
-// number of bytes. This copy does not commit the writer. The copy resumes
-// from the writer's current offset.
+// CopyReaderAt copies n bytes from the ReaderAt to the writer, starting at
+// the writer's current offset. Does not commit the writer; caller must call
+// Commit when done.
 func CopyReaderAt(cw Writer, ra ReaderAt, n int64) error {
 	if cw == nil {
 		return fmt.Errorf("content writer must not be nil")
@@ -279,9 +297,9 @@ func CopyReader(cw Writer, r io.Reader) (int64, error) {
 	return copyWithBuffer(cw, r)
 }
 
-// seekReader attempts to seek the reader to the given offset, either by
-// resolving `io.Seeker`, by detecting `io.ReaderAt`, or discarding
-// up to the given offset.
+// seekReader attempts to position the reader at the given offset. Tries
+// io.Seeker first, then io.ReaderAt if size is known, otherwise discards
+// bytes up to the offset.
 func seekReader(r io.Reader, offset, size int64) (io.Reader, error) {
 	// attempt to resolve r as a seeker and setup the offset.
 	seeker, ok := r.(io.Seeker)
@@ -320,10 +338,9 @@ func seekReader(r io.Reader, offset, size int64) (io.Reader, error) {
 	return r, nil
 }
 
-// copyWithBuffer is very similar to  io.CopyBuffer https://golang.org/pkg/io/#CopyBuffer
-// but instead of using Read to read from the src, we use ReadAtLeast to make sure we have
-// a full buffer before we do a write operation to dst to reduce overheads associated
-// with the write operations of small buffers.
+// copyWithBuffer copies from src to dst using a pooled buffer. Similar to
+// io.CopyBuffer but uses ReadAtLeast to fill the buffer before writing, reducing
+// overhead from many small writes. Uses WriterTo/ReaderFrom when available.
 func copyWithBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
 	// If the reader has a WriteTo method, use it to do the copy.
 	// Avoids an allocation and a copy.
@@ -335,8 +352,8 @@ func copyWithBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
 		return rt.ReadFrom(src)
 	}
 	bufRef := bufPool.Get().(*[]byte)
+	defer bufPool.Put(bufRef)
 	buf := *bufRef
-	bufPool.Put(bufRef)
 	for {
 		nr, er := io.ReadAtLeast(src, buf, len(buf))
 		if nr > 0 {
@@ -366,8 +383,7 @@ func copyWithBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
 }
 
 // Exists returns whether the content identified by desc is present in the
-// provider. It returns (false, nil) when the content is not found, and
-// propagates any other errors encountered during the lookup.
+// provider. Returns (false, nil) when not found; propagates other errors.
 func Exists(ctx context.Context, provider InfoProvider, desc ocispec.Descriptor) (bool, error) {
 	if provider == nil {
 		return false, fmt.Errorf("info provider must not be nil")

@@ -23,6 +23,8 @@ import (
 	digest "github.com/opencontainers/go-digest"
 )
 
+// remoteReaderAt implements content.ReaderAt by fetching content from a
+// remote TTRPC content service. Used by the content proxy.
 type remoteReaderAt struct {
 	ctx    context.Context
 	digest digest.Digest
@@ -30,10 +32,12 @@ type remoteReaderAt struct {
 	client contentapi.TTRPCContentClient
 }
 
+// Size returns the total size of the content being read.
 func (ra *remoteReaderAt) Size() int64 {
 	return ra.size
 }
 
+// ReadAt reads len(p) bytes from the content at offset off into p.
 func (ra *remoteReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
 	rr := &contentapi.ReadContentRequest{
 		Digest: ra.digest.String(),
@@ -66,6 +70,8 @@ func (ra *remoteReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
+// Close releases resources. For remoteReaderAt this is a no-op since
+// the TTRPC stream is request-scoped.
 func (ra *remoteReaderAt) Close() error {
 	return nil
 }

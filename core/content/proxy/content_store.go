@@ -41,8 +41,9 @@ type proxyContentStore struct {
 	client contentapi.TTRPCContentClient
 }
 
-// NewContentStore returns a new content store which communicates over a GRPC
-// connection using the containerd content GRPC API.
+// NewContentStore returns a content.Store that proxies requests over gRPC or
+// TTRPC. Accepts ContentClient, grpc.ClientConnInterface, TTRPCContentClient,
+// or *ttrpc.Client. Panics for unsupported client types.
 func NewContentStore(client any) content.Store {
 	switch c := client.(type) {
 	case contentapi.ContentClient:

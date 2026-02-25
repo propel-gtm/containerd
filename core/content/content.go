@@ -45,14 +45,16 @@ type Store interface {
 	Ingester
 }
 
-// ReaderAt extends the standard io.ReaderAt interface with reporting of Size and io.Closer
+// ReaderAt extends io.ReaderAt with Size and Close. Used by Provider to
+// expose content for reading. Callers must call Close when done.
 type ReaderAt interface {
 	io.ReaderAt
 	io.Closer
 	Size() int64
 }
 
-// Provider provides a reader interface for specific content
+// Provider provides a reader for content by digest. Only desc.Digest is
+// required; other descriptor fields may be used internally.
 type Provider interface {
 	// ReaderAt only requires desc.Digest to be set.
 	// Other fields in the descriptor may be used internally for resolving
@@ -60,7 +62,8 @@ type Provider interface {
 	ReaderAt(ctx context.Context, desc ocispec.Descriptor) (ReaderAt, error)
 }
 
-// Ingester writes content
+// Ingester initiates writes (ingestions). Each ingestion is identified by
+// a ref; use WithRef when calling Writer.
 type Ingester interface {
 	// Writer initiates a writing operation (aka ingestion). A single ingestion
 	// is uniquely identified by its ref, provided using a WithRef option.
@@ -70,9 +73,8 @@ type Ingester interface {
 	Writer(ctx context.Context, opts ...WriterOpt) (Writer, error)
 }
 
-// IngestManager provides methods for managing ingestions. An ingestion is a
-// not-yet-complete writing operation initiated using Ingester and identified
-// by a ref string.
+// IngestManager manages active ingestions (writes in progress). Ingestions
+// are identified by the ref string passed to Writer.
 type IngestManager interface {
 	// Status returns the status of the provided ref.
 	Status(ctx context.Context, ref string) (Status, error)
