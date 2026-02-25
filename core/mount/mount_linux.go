@@ -40,6 +40,7 @@ type mountOpt struct {
 }
 
 var (
+	// pagesize is the system page size, used to limit mount option string length.
 	pagesize              = 4096
 	allowedHelperBinaries = []string{"mount.fuse", "mount.fuse3"}
 )
@@ -428,8 +429,8 @@ func compactLowerdirOption(opts []string) (string, []string) {
 	return commondir, newopts
 }
 
-// findOverlayLowerdirs returns the index of lowerdir in mount's options and
-// all the lowerdir target.
+// findOverlayLowerdirs returns the index of the lowerdir option in the mount
+// options slice and the list of lower directory paths (colon-separated).
 func findOverlayLowerdirs(opts []string) (int, []string) {
 	var (
 		idx    = -1
@@ -477,7 +478,7 @@ func longestCommonPrefix(strs []string) string {
 	return min
 }
 
-// copyOptions copies the options.
+// copyOptions returns a copy of the options slice so the original is not modified.
 func copyOptions(opts []string) []string {
 	if len(opts) == 0 {
 		return nil
@@ -488,7 +489,8 @@ func copyOptions(opts []string) []string {
 	return acopy
 }
 
-// optionsSize returns the byte size of options of mount.
+// optionsSize returns the total byte length of all mount options concatenated.
+// Used to check against the page size limit for mount syscalls.
 func optionsSize(opts []string) int {
 	size := 0
 	for _, opt := range opts {

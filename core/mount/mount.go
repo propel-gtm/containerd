@@ -29,8 +29,9 @@ import (
 // HasBindMounts This is a flag to conditionally disable code that relies on working bind-mount support, so such code is easier to find across codebase.
 const HasBindMounts = runtime.GOOS != "darwin" && runtime.GOOS != "openbsd"
 
-// Mount is the lingua franca of containerd. A mount represents a
-// serialized mount syscall. Components either emit or consume mounts.
+// Mount is the lingua franca of containerd. A mount represents a serialized
+// mount syscall. Components either emit or consume mounts. Type is typically
+// "bind", "overlay", or a device type; Options are fstab-style.
 type Mount struct {
 	// Type specifies the host-specific of the mount.
 	Type string
@@ -97,8 +98,8 @@ func CanonicalizePath(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
 }
 
-// ReadOnly returns a boolean value indicating whether this mount has the "ro"
-// option set.
+// ReadOnly returns true if this mount has the "ro" option set, indicating
+// the mount should be read-only.
 func (m *Mount) ReadOnly() bool {
 	for _, option := range m.Options {
 		if option == "ro" {
@@ -117,8 +118,8 @@ func (m *Mount) Mount(target string) error {
 	return m.mount(target)
 }
 
-// readonlyMounts modifies the received mount options
-// to make them readonly
+// readonlyMounts modifies the mount options to make each mount readonly.
+// For overlay mounts, uses readonlyOverlay; for others, appends "ro" and removes "rw".
 func readonlyMounts(mounts []Mount) []Mount {
 	for i, m := range mounts {
 		if m.Type == "overlay" {
@@ -162,17 +163,16 @@ func readonlyOverlay(opt []string) []string {
 	return out
 }
 
-// isSkippedReadonlyOption takes an overlayfs option string and returns
-// true if such an option should be skipped when converting the mount
-// to a readonly mount
+// isSkippedReadonlyOption returns true if the overlay option should be
+// removed when converting to readonly (workdir, uidmap, gidmap).
 func isSkippedReadonlyOption(o string) bool {
 	return strings.HasPrefix(o, "workdir=") ||
 		strings.HasPrefix(o, "uidmap=") ||
 		strings.HasPrefix(o, "gidmap=")
 }
 
-// ToProto converts from [Mount] to the containerd
-// APIs protobuf definition of a Mount.
+// ToProto converts from [Mount] to the containerd API protobuf definition.
+// Returns a new slice; the original mounts are not modified.
 func ToProto(mounts []Mount) []*types.Mount {
 	apiMounts := make([]*types.Mount, len(mounts))
 	for i, m := range mounts {
@@ -186,8 +186,8 @@ func ToProto(mounts []Mount) []*types.Mount {
 	return apiMounts
 }
 
-// FromProto converts from the protobuf definition [types.Mount] to
-// [Mount].
+// FromProto converts from the protobuf definition [types.Mount] to [Mount].
+// Returns a new slice; panics if mm contains nil elements.
 func FromProto(mm []*types.Mount) []Mount {
 	mounts := make([]Mount, len(mm))
 	for i, m := range mm {

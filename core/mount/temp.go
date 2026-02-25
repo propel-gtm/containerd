@@ -79,9 +79,9 @@ func WithTempMount(ctx context.Context, mounts []Mount, f func(root string) erro
 	return nil
 }
 
-// RemoveVolatileOption copies and remove the volatile option for overlay
-// type, since overlayfs doesn't allow to mount again using the same upper/work
-// dirs.
+// RemoveVolatileOption copies the mounts and removes the volatile option from
+// overlay mounts. Overlayfs does not allow remounting with the same upper/work
+// dirs when volatile was used.
 //
 // REF: https://docs.kernel.org/filesystems/overlayfs.html#volatile-mount
 //
@@ -111,7 +111,8 @@ func RemoveVolatileOption(mounts []Mount) []Mount {
 	return mounts
 }
 
-// RemoveIDMapOption copies and removes the uidmap/gidmap options on any of the mounts using it.
+// RemoveIDMapOption copies the mounts and removes uidmap/gidmap options.
+// Used when creating readonly overlay mounts where idmapping is not needed.
 func RemoveIDMapOption(mounts []Mount) []Mount {
 	var out []Mount
 	for i, m := range mounts {
@@ -130,7 +131,8 @@ func RemoveIDMapOption(mounts []Mount) []Mount {
 	return mounts
 }
 
-// copyMounts creates a copy of the original slice to allow for modification and not altering the original
+// copyMounts creates a shallow copy of the mount slice so that modifications
+// (e.g., removing options) do not affect the original.
 func copyMounts(in []Mount) []Mount {
 	out := make([]Mount, len(in))
 	copy(out, in)
