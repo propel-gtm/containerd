@@ -110,16 +110,17 @@ func newNS(baseDir string, pid uint32) (nsPath string, err error) {
 		if err != nil {
 			return
 		}
-		defer origNS.Close()
 
 		// create a new netns on the current thread
 		err = unix.Unshare(unix.CLONE_NEWNET)
 		if err != nil {
+			origNS.Close()
 			return
 		}
 
 		// Put this thread back to the orig ns, since it might get reused (pre go1.10)
 		defer origNS.Set()
+		defer origNS.Close()
 
 		// bind mount the netns from the current thread (from /proc) onto the
 		// mount point. This causes the namespace to persist, even when there
@@ -144,17 +145,17 @@ func unmountNS(path string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to stat netns: %w", err)
+		return fmt.Errorf("failed to stat netns: %v", err)
 	}
 	path, err := symlink.FollowSymlinkInScope(path, "/")
 	if err != nil {
-		return fmt.Errorf("failed to follow symlink: %w", err)
+		return fmt.Errorf("failed to follow symlink: %v", err)
 	}
 	if err := mount.Unmount(path, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to umount netns: %w", err)
+		return fmt.Errorf("failed to umount netns: %v", err)
 	}
 	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("failed to remove netns: %w", err)
+		return fmt.Errorf("failed to remove netns: %v", err)
 	}
 	return nil
 }
