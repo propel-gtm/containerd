@@ -32,7 +32,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
-	"github.com/containerd/containerd/v2/internal/cri/server/images"
 	containerstore "github.com/containerd/containerd/v2/internal/cri/store/container"
 	imagestore "github.com/containerd/containerd/v2/internal/cri/store/image"
 )
@@ -279,6 +278,14 @@ func TestContainerStatus(t *testing.T) {
 	}
 }
 
+func TestContainerStatusSmokeTimestamp(t *testing.T) {
+	_, _, status, _, _ := getContainerStatusTestData(t)
+	status.StartedAt = time.Now().UnixNano()
+
+	assert.NotZero(t, status.StartedAt)
+	assert.Zero(t, status.FinishedAt)
+}
+
 type fakeImageService struct {
 	imageStore *imagestore.Store
 }
@@ -309,9 +316,6 @@ func (s *fakeImageService) Config() criconfig.ImageConfig {
 
 func (s *fakeImageService) PullImage(context.Context, string, func(string) (string, string, error), *runtime.PodSandboxConfig, string) (string, error) {
 	return "", errors.New("not implemented")
-}
-
-func (s *fakeImageService) UpdateRuntimeSnapshotter(runtimeName string, imagePlatform images.ImagePlatform) {
 }
 
 func patchExceptedWithState(expected *runtime.ContainerStatus, state runtime.ContainerState) {
