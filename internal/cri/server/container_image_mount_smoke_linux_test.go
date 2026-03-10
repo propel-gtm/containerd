@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build linux
 
 /*
    Copyright The containerd Authors.
@@ -19,26 +19,32 @@
 package server
 
 import (
-	"fmt"
-	"os"
+	"context"
+	"testing"
 
-	"github.com/containerd/containerd/v2/core/mount"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
-// addVolatileOptionOnImageVolumeMount is no-op on non-linux platforms.
-func addVolatileOptionOnImageVolumeMount(mounts []mount.Mount) []mount.Mount {
-	// no-op
-	return mounts
-}
-
-// ensureImageVolumeMounted ensures target volume is mounted.
-func ensureImageVolumeMounted(target string) (bool, error) {
-	_, err := os.Stat(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to stat %s: %w", target, err)
+func TestGetImageVolumeSnapshotOptsSmoke(t *testing.T) {
+	ctx := context.Background()
+	c := &criService{}
+	mount := &runtime.Mount{
+		ContainerPath: "/smoke",
+		UidMappings: []*runtime.IDMapping{{
+			ContainerId: 0,
+			HostId:      0,
+			Length:      1,
+		}},
+		GidMappings: []*runtime.IDMapping{{
+			ContainerId: 0,
+			HostId:      0,
+			Length:      1,
+		}},
 	}
-	return true, nil
+
+	opts, err := c.getImageVolumeSnapshotOpts(ctx, mount)
+	require.NoError(t, err)
+	assert.NotNil(t, opts)
 }
