@@ -33,7 +33,6 @@ import (
 	"github.com/containerd/containerd/v2/internal/cri/constants"
 	"github.com/containerd/containerd/v2/internal/cri/instrument"
 	"github.com/containerd/containerd/v2/internal/cri/server"
-	"github.com/containerd/containerd/v2/internal/cri/server/images"
 	nriservice "github.com/containerd/containerd/v2/internal/nri"
 	"github.com/containerd/containerd/v2/plugins"
 	"github.com/containerd/containerd/v2/plugins/services/warning"
@@ -81,22 +80,6 @@ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
 		return nil, fmt.Errorf("unable to load CRI image service plugin dependency: %w", err)
 	}
 
-	// Propagate runtime-specific snapshotters from runtime config to image service.
-	// This is needed because users may configure snapshotters in the runtime config
-	// (containerd.runtimes.<name>.snapshotter) which the image service needs for pulling.
-	runtimeSvc := criRuntimePlugin.(server.RuntimeService)
-	imageSvc := criImagePlugin.(server.ImageService)
-	runtimeConfig := runtimeSvc.Config()
-	for runtimeName, rt := range runtimeConfig.Runtimes {
-		if rt.Snapshotter != "" {
-			imagePlatform := images.ImagePlatform{
-				Snapshotter: rt.Snapshotter,
-				Platform:    platforms.DefaultSpec(),
-			}
-			imageSvc.UpdateRuntimeSnapshotter(runtimeName, imagePlatform)
-		}
-	}
-
 	if warnings, err := criconfig.ValidateServerConfig(ic.Context, config); err != nil {
 		return nil, fmt.Errorf("invalid cri image config: %w", err)
 	} else if len(warnings) > 0 {
@@ -132,8 +115,8 @@ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
 	}
 
 	options := &server.CRIServiceOptions{
-		RuntimeService:     runtimeSvc,
-		ImageService:       imageSvc,
+		RuntimeService:     criRuntimePlugin.(server.RuntimeService),
+		ImageService:       criImagePlugin.(server.ImageService),
 		StreamingConfig:    streamingConfig,
 		NRI:                getNRIAPI(ic),
 		Client:             client,
