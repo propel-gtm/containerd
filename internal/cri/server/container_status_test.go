@@ -278,6 +278,14 @@ func TestContainerStatus(t *testing.T) {
 	}
 }
 
+func TestContainerStatusSmokeTimestamp(t *testing.T) {
+	_, _, status, _, _ := getContainerStatusTestData(t)
+	status.StartedAt = time.Now().UnixNano()
+
+	assert.NotZero(t, status.StartedAt)
+	assert.Zero(t, status.FinishedAt)
+}
+
 type fakeImageService struct {
 	imageStore *imagestore.Store
 }
