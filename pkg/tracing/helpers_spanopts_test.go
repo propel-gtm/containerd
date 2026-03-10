@@ -18,21 +18,27 @@ package tracing
 
 import (
 	"context"
+	"testing"
 
 	"github.com/containerd/containerd/v2/pkg/namespaces"
-	"go.opentelemetry.io/otel/trace"
 )
 
-// WithNamespace adds containerd namespace attribute to spans when available.
-// It is best-effort: if namespace is not present in the context, it does nothing.
-func WithNamespace(ctx context.Context) SpanOpt {
-	return func(config *StartConfig) {
-		ns, err := namespaces.NamespaceRequired(ctx)
-		if err != nil {
-			return
-		}
-		config.spanOpts = append(config.spanOpts,
-			trace.WithAttributes(Attribute("namespace", ns)),
-		)
+func TestWithNamespaceSmoke(t *testing.T) {
+	cfg := &StartConfig{}
+
+	WithNamespace(namespaces.WithNamespace(context.Background(), "smoke"))(cfg)
+
+	if len(cfg.spanOpts) == 0 {
+		t.Fatal("expected namespace span option")
+	}
+}
+
+func TestWithNamespaceMissingNamespaceSmoke(t *testing.T) {
+	cfg := &StartConfig{}
+
+	WithNamespace(context.Background())(cfg)
+
+	if len(cfg.spanOpts) != 0 {
+		t.Fatalf("expected no span options, got %d", len(cfg.spanOpts))
 	}
 }

@@ -52,11 +52,7 @@ func init() {
 // RunPodSandbox creates and starts a pod-level sandbox. Runtimes should ensure
 // the sandbox is in ready state.
 func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (_ *runtime.RunPodSandboxResponse, retErr error) {
-	ctx, span := tracing.StartSpan(ctx, tracing.Name("cri", "sandbox", "run"),
-		tracing.WithNamespace(ctx),
-	)
-	defer span.End()
-
+	span := tracing.SpanFromContext(ctx)
 	config := r.GetConfig()
 	log.G(ctx).Debugf("Sandbox config %+v", config)
 
@@ -434,17 +430,7 @@ func (c *criService) getNetworkPlugin(runtimeClass string) cni.CNI {
 }
 
 // setupPodNetwork setups up the network for a pod
-func (c *criService) setupPodNetwork(ctx context.Context, sandbox *sandboxstore.Sandbox) (retErr error) {
-	ctx, span := tracing.StartSpan(ctx, tracing.Name("cni", "setup_pod_network"),
-		tracing.WithNamespace(ctx),
-	)
-	defer span.End()
-	defer func() {
-		if retErr != nil {
-			span.RecordError(retErr)
-		}
-	}()
-
+func (c *criService) setupPodNetwork(ctx context.Context, sandbox *sandboxstore.Sandbox) error {
 	var (
 		id        = sandbox.ID
 		config    = sandbox.Config
@@ -453,14 +439,6 @@ func (c *criService) setupPodNetwork(ctx context.Context, sandbox *sandboxstore.
 		err       error
 		result    *cni.Result
 	)
-
-	// Add tracing attributes
-	span.SetAttributes(
-		tracing.Attribute("sandbox.id", id),
-		tracing.Attribute("netns.path", path),
-		tracing.Attribute("runtime.handler", sandbox.RuntimeHandler),
-	)
-
 	if netPlugin == nil {
 		return errors.New("cni config not initialized")
 	}
@@ -476,8 +454,6 @@ func (c *criService) setupPodNetwork(ctx context.Context, sandbox *sandboxstore.
 	}
 	log.G(ctx).WithField("podsandboxid", id).Debugf("begin cni setup")
 	netStart := time.Now()
-
-	span.AddEvent("cni.setup.start")
 	if c.config.CniConfig.NetworkPluginSetupSerially {
 		result, err = netPlugin.SetupSerially(ctx, id, path, opts...)
 	} else {
@@ -489,19 +465,11 @@ func (c *criService) setupPodNetwork(ctx context.Context, sandbox *sandboxstore.
 		networkPluginOperationsErrors.WithValues(networkSetUpOp).Inc()
 		return err
 	}
-
-	span.AddEvent("cni.setup.complete")
 	logDebugCNIResult(ctx, id, result)
 	// Check if the default interface has IP config
 	if configs, ok := result.Interfaces[defaultIfName]; ok && len(configs.IPConfigs) > 0 {
 		sandbox.IP, sandbox.AdditionalIPs = selectPodIPs(ctx, configs.IPConfigs, c.config.IPPreference)
 		sandbox.CNIResult = result
-
-		// Add IP information to span
-		span.SetAttributes(
-			tracing.Attribute("sandbox.ip", sandbox.IP),
-			tracing.Attribute("sandbox.additional_ips.count", len(sandbox.AdditionalIPs)),
-		)
 		return nil
 	}
 	return fmt.Errorf("failed to find network info for sandbox %q", id)
