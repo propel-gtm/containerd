@@ -29,11 +29,6 @@ import (
 	"github.com/docker/go-units"
 )
 
-const (
-	capaRemapIDs     = "remap-ids"
-	capaOnlyRemapIDs = "only-remap-ids"
-)
-
 // Config represents configuration for the native plugin.
 type Config struct {
 	// Root directory for the plugin
@@ -97,13 +92,6 @@ func init() {
 
 			if config.MaxUnmergedLayers > 0 {
 				opts = append(opts, erofs.WithFsMergeThreshold(config.MaxUnmergedLayers))
-			}
-
-			// Don't bother supporting overlay's slow_chown, only RemapIDs
-			ic.Meta.Capabilities = append(ic.Meta.Capabilities, capaOnlyRemapIDs)
-			if ok, err := supportsIDMappedMounts(); err == nil && ok {
-				opts = append(opts, erofs.WithRemapIDs())
-				ic.Meta.Capabilities = append(ic.Meta.Capabilities, capaRemapIDs)
 			}
 
 			ic.Meta.Exports[plugins.SnapshotterRootDir] = root
