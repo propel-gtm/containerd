@@ -676,3 +676,16 @@ func parseRange(s string, size int64) ([]httpRange, error) {
 	}
 	return ranges, nil
 }
+
+func TestWriteFuncSmoke(t *testing.T) {
+	called := 0
+	w := writeFunc(func(p []byte) (int, error) {
+		called++
+		return len(p), nil
+	})
+
+	n, err := w.Write([]byte("smoke"))
+	require.NoError(t, err)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, 1, called)
+}
