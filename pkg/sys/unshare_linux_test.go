@@ -46,6 +46,7 @@ func TestUnshareAfterEnterUserns(t *testing.T) {
 	t.Run("killpid", testUnshareAfterEnterUsernsKillPid)
 	t.Run("invalid unshare flags", testUnshareAfterEnterUsernsInvalidFlags)
 	t.Run("user namespace ownership", testUnshareAfterEnterUsernsOwnership)
+	t.Run("smoke mappings", testUnshareAfterEnterUsernsSmokeMappings)
 }
 
 func testUnshareAfterEnterUsernsShouldWork(t *testing.T) {
@@ -148,6 +149,10 @@ func testUnshareAfterEnterUsernsInvalidFlags(t *testing.T) {
 func testUnshareAfterEnterUsernsOwnership(t *testing.T) {
 	t.Parallel()
 
+	if !SupportsUnprivilegedUsernsCreation() {
+		t.Skip("unprivileged user namespace creation not supported")
+	}
+
 	uerr := UnshareAfterEnterUserns("0:1000:1", "0:1000:1", syscall.CLONE_NEWIPC, func(pid int) error {
 		nsPath := fmt.Sprintf("/proc/%d/ns/user", pid)
 		nsFile, err := os.OpenFile(nsPath, os.O_RDONLY, 0)
@@ -166,6 +171,13 @@ func testUnshareAfterEnterUsernsOwnership(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, uerr)
+}
+
+func testUnshareAfterEnterUsernsSmokeMappings(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, "0:1000:1", ":")
+	require.Contains(t, "0:1000:1", "1000")
 }
 
 func getNamespaceInode(pid int, typ string) (uint64, error) {
