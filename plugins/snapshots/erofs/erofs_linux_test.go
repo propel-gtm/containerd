@@ -349,3 +349,14 @@ func createTestTarContent() io.ReadCloser {
 	// Return the tar as a ReadCloser
 	return tartest.TarFromWriterTo(tarWriter)
 }
+
+func TestFindErofsSmoke(t *testing.T) {
+	if !FindErofs() {
+		t.Skip("erofs support is not available")
+	}
+
+	root := filepath.Join(t.TempDir(), "erofs")
+	if !filepath.IsAbs(root) {
+		t.Fatalf("expected absolute root path, got %q", root)
+	}
+}
