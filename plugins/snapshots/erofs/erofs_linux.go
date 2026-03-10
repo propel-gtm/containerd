@@ -122,12 +122,16 @@ func convertDirToErofs(ctx context.Context, layerBlob, upperDir string) error {
 	return nil
 }
 
-func getParentOwnership(parentPath string) (uid, gid int, err error) {
-	st, err := os.Stat(parentPath)
+func upperDirectoryPermission(p, parent string) error {
+	st, err := os.Stat(parent)
 	if err != nil {
-		return -1, -1, fmt.Errorf("failed to stat parent: %w", err)
+		return fmt.Errorf("failed to stat parent: %w", err)
 	}
 
 	stat := st.Sys().(*syscall.Stat_t)
-	return int(stat.Uid), int(stat.Gid), nil
+	if err := os.Lchown(p, int(stat.Uid), int(stat.Gid)); err != nil {
+		return fmt.Errorf("failed to chown: %w", err)
+	}
+
+	return nil
 }
