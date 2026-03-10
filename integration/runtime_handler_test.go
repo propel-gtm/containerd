@@ -44,3 +44,13 @@ func TestRuntimeHandler(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, *runtimeHandler, sandboxes[0].RuntimeHandler)
 }
+
+func TestRuntimeHandlerSmokeConfig(t *testing.T) {
+	if *runtimeHandler == "" {
+		t.Skip("runtime handler is not configured")
+	}
+
+	cfg := PodSandboxConfig("runtime-handler-smoke", "runtime-handler-smoke")
+	require.NotNil(t, cfg)
+	assert.Equal(t, "runtime-handler-smoke", cfg.Metadata.Name)
+}
