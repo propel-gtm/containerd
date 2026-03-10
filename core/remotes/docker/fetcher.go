@@ -34,7 +34,6 @@ import (
 	"github.com/klauspost/compress/zstd"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/remotes"
@@ -61,7 +60,6 @@ func (p *bufferPool) Get() *bytes.Buffer {
 }
 
 func (p *bufferPool) Put(buffer *bytes.Buffer) {
-	buffer.Reset()
 	p.pool.Put(buffer)
 }
 
@@ -512,11 +510,9 @@ func (r dockerFetcher) open(ctx context.Context, req *request, mediatype string,
 		if numChunks < parallelism {
 			parallelism = numChunks
 		}
-
-		// Prepare channels, buffer pool, and readers/writers for parallel fetching.
 		queue := make(chan int64, parallelism)
-		ctx, cancel := context.WithCancel(ctx)
-		eg, ctx := errgroup.WithContext(ctx)
+		ctx, cancelCtx := context.WithCancel(ctx)
+		done := ctx.Done()
 		readers, writers := make([]io.Reader, numChunks), make([]*pipeWriter, numChunks)
 		bufPool := newbufferPool(chunkSize)
 		for i := range numChunks {
@@ -524,23 +520,21 @@ func (r dockerFetcher) open(ctx context.Context, req *request, mediatype string,
 		}
 		// keep reference of the initial body value to ensure it is closed
 		ibody := body
-		eg.Go(func() error {
-			defer close(queue)
+		go func() {
 			for i := range numChunks {
 				select {
 				case queue <- i:
-				case <-ctx.Done():
+				case <-done:
 					if i == 0 {
 						ibody.Close()
 					}
-					return ctx.Err()
+					return // avoid leaking a goroutine if we exit early.
 				}
 			}
-			return nil
-		})
-
+			close(queue)
+		}()
 		for range parallelism {
-			eg.Go(func() error {
+			go func() {
 				for i := range queue { // first in first out
 					copy := func() error {
 						var body io.ReadCloser
@@ -548,7 +542,6 @@ func (r dockerFetcher) open(ctx context.Context, req *request, mediatype string,
 							body = ibody
 						} else {
 							if err := r.Acquire(ctx, 1); err != nil {
-								_ = writers[i].CloseWithError(err)
 								return err
 							}
 							defer r.Release(1)
@@ -557,6 +550,12 @@ func (r dockerFetcher) open(ctx context.Context, req *request, mediatype string,
 							nresp, err := reqClone.doWithRetries(ctx, lastHost, withErrorCheck)
 							if err != nil {
 								_ = writers[i].CloseWithError(err)
+								select {
+								case <-done:
+									return ctx.Err()
+								default:
+									cancelCtx()
+								}
 								return err
 							}
 							body = nresp.Body
@@ -565,23 +564,20 @@ func (r dockerFetcher) open(ctx context.Context, req *request, mediatype string,
 						_ = body.Close()
 						_ = writers[i].CloseWithError(err)
 						if err != nil && err != io.EOF {
+							cancelCtx()
 							return err
 						}
 						return nil
 					}
-					if err := copy(); err != nil {
-						return err
+					if copy() != nil {
+						return
 					}
 				}
-				return nil
-			})
+			}()
 		}
 		body = &fnOnClose{
 			BeforeClose: func() {
-				cancel()
-				if err := eg.Wait(); err != nil {
-					log.G(ctx).WithError(err).Warn("parallel fetch failed")
-				}
+				cancelCtx()
 			},
 			ReadCloser: io.NopCloser(io.MultiReader(readers...)),
 		}
